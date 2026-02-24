@@ -1,0 +1,88 @@
+version: "3.8"
+
+services:
+  # ── NanoClaw AI Agent (에어갭 격리) ──
+  nanoclaw-agent:
+    build: ./agent
+    container_name: nanoclaw-agent
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    tmpfs:
+      - /tmp:size=64m
+    networks:
+      - airgap_net
+    volumes:
+      - ./shared_data/n8n_inbox:/app/shared_data/n8n_inbox:rw
+      - ./shared_data/obsidian_vault:/app/shared_data/obsidian_vault:rw
+      - ./shared_data/verified_inbox:/app/shared_data/verified_inbox:rw
+      - ./shared_data/agent_comms:/app/shared_data/agent_comms:rw
+      - ./shared_data/logs:/app/shared_data/logs:rw
+    depends_on:
+      - llm-proxy
+    restart: unless-stopped
+
+  # ── LLM API 프록시 (FastAPI) ──
+  llm-proxy:
+    build: ./proxy
+    container_name: llm-proxy
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.3"
+    env_file:
+      - .env.local
+    networks:
+      - airgap_net
+      - external_net
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./agent/personas:/app/personas:ro
+      - ./shared_data/obsidian_vault:/app/vault:rw
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  # ── n8n (웹검색 + 필터링) ──
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: nanoclaw-n8n
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.5"
+    env_file:
+      - .env.local
+    networks:
+      - airgap_net
+      - external_net
+    volumes:
+      - ./shared_data/n8n_inbox:/data/inbox:rw
+      - n8n_data:/home/node/.n8n
+    ports:
+      - "5678:5678"
+    restart: unless-stopped
+
+networks:
+  airgap_net:
+    driver: bridge
+    internal: true
+  external_net:
+    driver: bridge
+
+volumes:
+  n8n_data:
