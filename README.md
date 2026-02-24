@@ -1,5 +1,9 @@
 # Air-Gapped Agent Dashboard Scaffold
 
+## Documentation
+- [Project Overview](docs/PROJECT_OVERVIEW.md)
+- [Security Model](docs/SECURITY_MODEL.md)
+
 ## Stack
 - Next.js (App Router)
 - Tailwind CSS + shadcn/ui style components

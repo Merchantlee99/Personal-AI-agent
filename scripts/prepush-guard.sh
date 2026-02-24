@@ -11,6 +11,9 @@ cd "${ROOT_DIR}"
 
 declare -a blocked_paths=()
 while IFS= read -r file; do
+  if [[ "${file}" == "shared_data/.gitkeep" || "${file}" == shared_data/*/.gitkeep ]]; then
+    continue
+  fi
   case "${file}" in
     .env|.env.local|.env.*.local|shared_data/*|.next/*|node_modules/*|*.db|*.db-*|*.sqlite|*.sqlite3)
       blocked_paths+=("${file}")
