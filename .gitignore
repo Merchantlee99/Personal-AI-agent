@@ -29,7 +29,6 @@ pnpm-debug.log*
 !/shared_data/**/.gitkeep
 !/shared_data/agent_comms/
 !/shared_data/agent_comms/**/
-!/shared_data/agent_comms/README.md
 /shared_data/agent_comms/**/*.json
 /shared_data/agent_comms/**/*.log
 

@@ -5,6 +5,7 @@
 - [Security Model](docs/SECURITY_MODEL.md)
 - [n8n Local Setup](docs/N8N_LOCAL_SETUP.md)
 - [n8n Local Owner Account (Dev)](docs/N8N_LOCAL_ACCOUNT.md)
+- [Agent Comms Pipeline](docs/AGENT_COMMS_PIPELINE.md)
 
 ## Stack
 - Next.js (App Router)
