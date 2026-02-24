@@ -9,12 +9,13 @@ import { cn } from "@/lib/utils";
 
 type AgentId = "ace" | "owl" | "dolphin";
 type AgentStatus = "online" | "busy" | "idle";
+type ReactionState = "neutral" | "thinking" | "warning";
 
 type Agent = {
   id: AgentId;
   name: string;
   legacyName: string;
-  icon: string;
+  avatar: string;
   color: string;
   role: string;
   model: string;
@@ -44,7 +45,7 @@ const AGENTS: Agent[] = [
     id: "ace",
     name: "Morpheus",
     legacyName: "에이스",
-    icon: "🐙",
+    avatar: "/agents/Morpheus.png",
     color: "#8B5CF6",
     role: "총괄 조언자",
     model: "claude-opus-4-6",
@@ -56,7 +57,7 @@ const AGENTS: Agent[] = [
     id: "owl",
     name: "Clio",
     legacyName: "지식관리자",
-    icon: "🦉",
+    avatar: "/agents/Clio.png",
     color: "#F59E0B",
     role: "지식 체계화",
     model: "claude-sonnet-4-5-20250929",
@@ -68,7 +69,7 @@ const AGENTS: Agent[] = [
     id: "dolphin",
     name: "Hermes",
     legacyName: "트렌드트래커",
-    icon: "🐬",
+    avatar: "/agents/Hermes.png",
     color: "#3B82F6",
     role: "트렌드 조사",
     model: "claude-sonnet-4-5-20250929",
@@ -123,13 +124,27 @@ const STATUS_CLASS: Record<AgentStatus, string> = {
   idle: "bg-stone-400"
 };
 
+const REACTION_LABEL: Record<ReactionState, string> = {
+  neutral: "중립",
+  thinking: "생각 중",
+  warning: "주의"
+};
+
+const REACTION_CLASS: Record<ReactionState, string> = {
+  neutral: "border-stone-200 bg-stone-100 text-stone-600",
+  thinking: "border-blue-200 bg-blue-50 text-blue-700",
+  warning: "border-red-200 bg-red-50 text-red-700"
+};
+
+const INITIAL_CREATED_AT = "2026-02-24T00:00:00.000Z";
+
 const INITIAL_HISTORIES: Record<AgentId, ChatMessage[]> = {
   ace: [
     {
       id: "ace-initial",
       role: "assistant",
       content: "Morpheus 연결 완료. 전략/우선순위/실행 플랜을 함께 정리하겠습니다.",
-      createdAt: new Date().toISOString()
+      createdAt: INITIAL_CREATED_AT
     }
   ],
   owl: [
@@ -137,7 +152,7 @@ const INITIAL_HISTORIES: Record<AgentId, ChatMessage[]> = {
       id: "owl-initial",
       role: "assistant",
       content: "Clio 연결 완료. 노트 구조화와 지식 연결을 도와드릴게요.",
-      createdAt: new Date().toISOString()
+      createdAt: INITIAL_CREATED_AT
     }
   ],
   dolphin: [
@@ -145,7 +160,7 @@ const INITIAL_HISTORIES: Record<AgentId, ChatMessage[]> = {
       id: "dolphin-initial",
       role: "assistant",
       content: "Hermes 연결 완료. 최신 트렌드 조사와 정리를 수행합니다.",
-      createdAt: new Date().toISOString()
+      createdAt: INITIAL_CREATED_AT
     }
   ]
 };
@@ -164,7 +179,8 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString("ko-KR", {
     hour: "2-digit",
     minute: "2-digit",
-    hour12: false
+    hour12: false,
+    timeZone: "Asia/Seoul"
   });
 }
 
@@ -191,8 +207,39 @@ function normalizeAssistantContent(content: string): string {
     .trim();
 }
 
+function getReactionState(history: ChatMessage[], pending: boolean): ReactionState {
+  if (pending) {
+    return "thinking";
+  }
+
+  const latestMessage = [...history].reverse().find((message) => message.role !== "user");
+  if (latestMessage?.role === "system") {
+    return "warning";
+  }
+
+  return "neutral";
+}
+
+function AgentAvatar({
+  agent,
+  size,
+  className
+}: {
+  agent: Agent;
+  size: number;
+  className?: string;
+}) {
+  return (
+    <div
+      className={cn("overflow-hidden rounded-full border", className)}
+      style={{ width: size, height: size, borderColor: `${agent.color}66`, backgroundColor: `${agent.color}14` }}
+    >
+      <img src={agent.avatar} alt={`${agent.name} avatar`} className="h-full w-full object-cover object-top" loading="lazy" />
+    </div>
+  );
+}
+
 export function ChatDashboard() {
-  const dashboardTitle = process.env.NEXT_PUBLIC_DASHBOARD_TITLE ?? "Nanoclaw Collaborative Agent Console";
   const defaultAgent = process.env.NEXT_PUBLIC_DEFAULT_AGENT_ID ?? "ace";
 
   const [selectedAgentId, setSelectedAgentId] = useState<AgentId>(
@@ -204,6 +251,8 @@ export function ChatDashboard() {
   const [isSending, setIsSending] = useState(false);
   const [broadcastMode, setBroadcastMode] = useState(false);
   const [pendingAgents, setPendingAgents] = useState<AgentId[]>([]);
+  const [isHydrated, setIsHydrated] = useState(false);
+  const [currentDateTime, setCurrentDateTime] = useState("");
 
   const endRef = useRef<HTMLDivElement | null>(null);
 
@@ -212,6 +261,13 @@ export function ChatDashboard() {
     [selectedAgentId]
   );
   const activeHistory = histories[selectedAgentId];
+  const reactionByAgent = useMemo(() => {
+    return AGENTS.reduce<Record<AgentId, ReactionState>>((acc, agent) => {
+      acc[agent.id] = getReactionState(histories[agent.id] ?? [], pendingAgents.includes(agent.id));
+      return acc;
+    }, {} as Record<AgentId, ReactionState>);
+  }, [histories, pendingAgents]);
+  const activeReaction = reactionByAgent[selectedAgentId];
   const recentUserPrompts = useMemo(() => {
     return activeHistory
       .filter((message) => message.role === "user")
@@ -226,6 +282,31 @@ export function ChatDashboard() {
   useEffect(() => {
     setUnreadByAgent((prev) => ({ ...prev, [selectedAgentId]: 0 }));
   }, [selectedAgentId]);
+
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    const renderDateTime = () => {
+      setCurrentDateTime(
+        new Intl.DateTimeFormat("ko-KR", {
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+          weekday: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+          timeZone: "Asia/Seoul"
+        }).format(new Date())
+      );
+    };
+
+    renderDateTime();
+    const timer = window.setInterval(renderDateTime, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -427,21 +508,19 @@ export function ChatDashboard() {
       <main className="mx-auto w-full max-w-[1600px]">
         <div className="mb-4 flex items-center justify-between rounded-xl border border-amber-100 bg-white/80 px-4 py-3">
           <div>
-            <h1 className="text-lg font-semibold text-stone-900 sm:text-xl">{dashboardTitle}</h1>
-            <p className="text-xs text-stone-500 sm:text-sm">Snapplug 스타일 협업 콘솔 | 단축키: Cmd/Ctrl + 1/2/3</p>
+            <h1 className="text-lg font-semibold text-stone-900 sm:text-xl">Personal AI agent</h1>
           </div>
-          <div className="rounded-full border border-stone-200 bg-stone-100 px-3 py-1 text-xs font-medium text-stone-700">
-            활성 에이전트: {activeAgent.name}
+          <div className="text-right">
+            <p className="text-xs text-stone-500">현재 시간</p>
+            <p className="text-sm font-medium text-stone-700" suppressHydrationWarning>
+              {isHydrated ? currentDateTime : "--"}
+            </p>
           </div>
         </div>
 
-        <div className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)_320px]">
-          <Card className="h-fit border-stone-200/80 bg-white/90 xl:sticky xl:top-6">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">AI 팀원</CardTitle>
-              <CardDescription>상태/역할 기반으로 빠르게 전환</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
+        <div className="grid gap-4 xl:grid-cols-[260px_minmax(0,1fr)_320px] xl:items-stretch">
+          <Card className="h-full border-stone-200/80 bg-white/90 xl:sticky xl:top-6">
+            <CardContent className="space-y-2 p-4">
               {AGENTS.map((agent) => {
                 const active = selectedAgentId === agent.id;
                 return (
@@ -457,9 +536,7 @@ export function ChatDashboard() {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
-                        <span className="text-2xl" aria-hidden="true">
-                          {agent.icon}
-                        </span>
+                        <AgentAvatar agent={agent} size={56} className="shrink-0" />
                         <div>
                           <p className="text-sm font-semibold text-stone-900">{agent.name}</p>
                           <p className="text-xs text-stone-500">{agent.legacyName} · {agent.role}</p>
@@ -479,6 +556,11 @@ export function ChatDashboard() {
                         <span className="text-stone-600">{STATUS_LABEL[agent.status]}</span>
                       </div>
                       <span className="text-stone-500">{agent.model}</span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-[11px]">
+                      <span className={cn("rounded-full border px-2 py-0.5", REACTION_CLASS[reactionByAgent[agent.id]])}>
+                        {REACTION_LABEL[reactionByAgent[agent.id]]}
+                      </span>
                     </div>
                     <p className="mt-1 truncate text-[11px] text-stone-500">금기어: {agent.tabooWord}</p>
                     <p className="truncate text-[11px] text-stone-500">보고: {agent.reportStyle}</p>
@@ -525,22 +607,44 @@ export function ChatDashboard() {
 
               <div className="h-[56vh] overflow-y-auto rounded-2xl border border-stone-200 bg-stone-50/80 p-4">
                 <div className="space-y-3">
-                  {activeHistory.map((message) => (
-                    <div key={message.id} className={cn("space-y-1", message.role === "user" && "text-right")}>
-                      <div
-                        className={cn(
-                          "inline-block max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-relaxed",
-                          "whitespace-pre-wrap",
-                          message.role === "user" && "bg-primary text-primary-foreground",
-                          message.role === "assistant" && "border border-emerald-100 bg-white text-stone-900",
-                          message.role === "system" && "border border-red-200 bg-red-50 text-red-900"
-                        )}
-                      >
-                        {message.content}
+                  {activeHistory.map((message) => {
+                    if (message.role === "assistant") {
+                      return (
+                        <div key={message.id} className="space-y-1">
+                          <div className="flex items-start gap-2">
+                            <AgentAvatar agent={activeAgent} size={28} className="mt-0.5 shrink-0" />
+                            <div className="max-w-[88%] space-y-1">
+                              <p className="text-xs font-semibold text-stone-700">{activeAgent.name}</p>
+                              <div className="inline-block rounded-2xl border border-emerald-100 bg-white px-4 py-3 text-sm leading-relaxed text-stone-900 whitespace-pre-wrap">
+                                {message.content}
+                              </div>
+                            </div>
+                          </div>
+                          <p className="pl-10 text-[11px] text-stone-400" suppressHydrationWarning>
+                            {isHydrated ? formatTime(message.createdAt) : "--:--"}
+                          </p>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div key={message.id} className={cn("space-y-1", message.role === "user" && "text-right")}>
+                        <div
+                          className={cn(
+                            "inline-block max-w-[88%] rounded-2xl px-4 py-3 text-sm leading-relaxed",
+                            "whitespace-pre-wrap",
+                            message.role === "user" && "bg-primary text-primary-foreground",
+                            message.role === "system" && "border border-red-200 bg-red-50 text-red-900"
+                          )}
+                        >
+                          {message.content}
+                        </div>
+                        <p className="text-[11px] text-stone-400" suppressHydrationWarning>
+                          {isHydrated ? formatTime(message.createdAt) : "--:--"}
+                        </p>
                       </div>
-                      <p className="text-[11px] text-stone-400">{formatTime(message.createdAt)}</p>
-                    </div>
-                  ))}
+                    );
+                  })}
 
                   {isSending ? (
                     <div className="inline-block max-w-[88%] rounded-2xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-600">
@@ -586,7 +690,7 @@ export function ChatDashboard() {
             </CardContent>
           </Card>
 
-          <Card className="h-fit border-stone-200/80 bg-white/90 xl:sticky xl:top-6">
+          <Card className="h-full border-stone-200/80 bg-white/90 xl:sticky xl:top-6">
             <CardHeader className="pb-3">
               <CardTitle className="text-base">운영 패널</CardTitle>
               <CardDescription>API 사용량과 보고 규칙</CardDescription>
@@ -594,7 +698,7 @@ export function ChatDashboard() {
             <CardContent className="space-y-4">
               <div className="rounded-xl border border-stone-200 bg-stone-50 p-3">
                 <div className="flex items-center gap-3">
-                  <span className="text-2xl">{activeAgent.icon}</span>
+                  <AgentAvatar agent={activeAgent} size={52} className="shrink-0" />
                   <div>
                     <p className="text-sm font-semibold text-stone-900">{activeAgent.name}</p>
                     <p className="text-xs text-stone-500">{activeAgent.role}</p>
@@ -603,6 +707,11 @@ export function ChatDashboard() {
                 <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-stone-600">
                   <div className="rounded-lg border border-stone-200 bg-white px-2 py-1.5">모델: {activeAgent.model}</div>
                   <div className="rounded-lg border border-stone-200 bg-white px-2 py-1.5">상태: {STATUS_LABEL[activeAgent.status]}</div>
+                </div>
+                <div className="mt-2">
+                  <span className={cn("rounded-full border px-2 py-1 text-[11px]", REACTION_CLASS[activeReaction])}>
+                    반응 상태: {REACTION_LABEL[activeReaction]}
+                  </span>
                 </div>
                 <div className="mt-2 space-y-1 text-[11px] text-stone-600">
                   <p>금기어: {activeAgent.tabooWord}</p>
@@ -629,8 +738,8 @@ export function ChatDashboard() {
                       <div className="mt-2 grid grid-cols-2 gap-y-1 text-[11px] text-stone-500">
                         <span>남은 예산: ${remaining.toFixed(1)}</span>
                         <span className="text-right">오류율: {usage.errorRate.toFixed(1)}%</span>
-                        <span>입력: {usage.inputTokens.toLocaleString()}</span>
-                        <span className="text-right">출력: {usage.outputTokens.toLocaleString()}</span>
+                        <span>입력: {usage.inputTokens.toLocaleString("ko-KR")}</span>
+                        <span className="text-right">출력: {usage.outputTokens.toLocaleString("ko-KR")}</span>
                       </div>
                     </div>
                   );
@@ -680,8 +789,11 @@ export function ChatDashboard() {
                 onClick={() => setSelectedAgentId(agent.id)}
                 aria-label={`${agent.name} 에이전트 선택`}
               >
-                <div className="text-2xl">{agent.icon}</div>
+                <AgentAvatar agent={agent} size={50} className="mx-auto" />
                 <p className="mt-1 text-xs font-semibold text-stone-800">{agent.name}</p>
+                <p className={cn("mx-auto mt-1 inline-flex rounded-full border px-1.5 py-0.5 text-[10px]", REACTION_CLASS[reactionByAgent[agent.id]])}>
+                  {REACTION_LABEL[reactionByAgent[agent.id]]}
+                </p>
               </button>
             );
           })}

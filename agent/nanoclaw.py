@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import shutil
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from threading import Lock
 
@@ -17,16 +18,42 @@ except ImportError:
     from agent_router import AGENTS, log_event, route_to_agent
 
 INBOX_DIR = Path("/app/shared_data/n8n_inbox")
-COMMS_DIR = Path("/app/shared_data/agent_comms")
+COMMS_ROOT_DIR = Path("/app/shared_data/agent_comms")
+COMMS_INBOX_ROOT = COMMS_ROOT_DIR / "inbox"
+COMMS_ACE_INBOX_DIR = COMMS_INBOX_ROOT / "ace"
+COMMS_OUTBOX_ROOT = COMMS_ROOT_DIR / "outbox"
+COMMS_ARCHIVE_DIR = COMMS_ROOT_DIR / "archive"
+COMMS_DEADLETTER_DIR = COMMS_ROOT_DIR / "deadletter"
 VAULT_DIR = Path("/app/shared_data/obsidian_vault")
 VERIFIED_DIR = Path("/app/shared_data/verified_inbox")
 
 DEFAULT_AGENT = "owl"
+TARGET_AGENT = "ace"
+AGENT_ALIASES = {
+    "ace": "ace",
+    "에이스": "ace",
+    "morpheus": "ace",
+    "모르피어스": "ace",
+    "owl": "owl",
+    "clio": "owl",
+    "클리오": "owl",
+    "dolphin": "dolphin",
+    "hermes": "dolphin",
+    "헤르메스": "dolphin",
+}
 AGENT_PREFIXES = {
     "ace_": "ace",
+    "에이스_": "ace",
+    "morpheus_": "ace",
+    "모르피어스_": "ace",
     "owl_": "owl",
+    "clio_": "owl",
+    "클리오_": "owl",
     "dolphin_": "dolphin",
+    "hermes_": "dolphin",
+    "헤르메스_": "dolphin",
 }
+KST = timezone(timedelta(hours=9))
 
 
 def wait_until_stable(file_path: Path, retries: int = 20, delay_sec: float = 0.2) -> bool:
@@ -61,6 +88,73 @@ def infer_agent_id_from_filename(filename: str) -> str:
         if lower.startswith(prefix):
             return agent_id
     return DEFAULT_AGENT
+
+
+def now_kst_iso() -> str:
+    return datetime.now(KST).isoformat(timespec="seconds")
+
+
+def canonical_agent_id(value: str, fallback: str) -> str:
+    normalized = value.strip().lower()
+    if not normalized:
+        return fallback
+    normalized = AGENT_ALIASES.get(normalized, normalized)
+    return normalized if normalized in AGENTS else fallback
+
+
+def write_json_atomic(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f"{path.name}.tmp")
+    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp_path.replace(path)
+
+
+def move_to_deadletter(source_path: Path, reason: str) -> Path:
+    COMMS_DEADLETTER_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now(KST).strftime("%Y%m%d_%H%M%S")
+    dest_path = COMMS_DEADLETTER_DIR / f"{source_path.stem}_{timestamp}{source_path.suffix}"
+    shutil.move(str(source_path), str(dest_path))
+    log_event("COMMS_DEADLETTER", f"source={source_path.name} reason={reason} dest={dest_path.name}")
+    return dest_path
+
+
+def archive_done_message(source_path: Path, payload: dict) -> Path:
+    day_dir = COMMS_ARCHIVE_DIR / datetime.now(KST).strftime("%Y%m%d")
+    day_dir.mkdir(parents=True, exist_ok=True)
+
+    payload.setdefault("meta", {})
+    payload["meta"]["status"] = "done"
+    payload["meta"]["archived_at_kst"] = now_kst_iso()
+    write_json_atomic(source_path, payload)
+
+    dest_path = day_dir / source_path.name
+    if dest_path.exists():
+        suffix = datetime.now(KST).strftime("%H%M%S")
+        dest_path = day_dir / f"{source_path.stem}_{suffix}{source_path.suffix}"
+
+    shutil.move(str(source_path), str(dest_path))
+    return dest_path
+
+
+def extract_prompt(payload: dict) -> str:
+    content = payload.get("content")
+    if isinstance(content, dict):
+        body = str(content.get("body") or "").strip()
+        if body:
+            return body
+        subject = str(content.get("subject") or "").strip()
+        if subject:
+            return subject
+    elif isinstance(content, str):
+        content_text = content.strip()
+        if content_text:
+            return content_text
+
+    instruction = str(payload.get("instruction") or "").strip()
+    if instruction:
+        return instruction
+
+    return ""
 
 
 def write_verified_report(target_agent: str, source_name: str, result: str) -> Path:
@@ -131,38 +225,78 @@ def process_comm_file(source_path: Path) -> None:
         payload = json.loads(raw_payload)
     except Exception:
         logging.exception("Invalid comm message JSON: %s", source_path.name)
-        log_event("COMMS_INVALID_JSON", f"source={source_path.name}")
+        log_event("COMMS_INVALID_JSON", f"source={source_path.name} (unable to parse)")
+        try:
+            move_to_deadletter(source_path, "invalid_json")
+        except Exception:
+            logging.exception("Failed moving invalid JSON to deadletter: %s", source_path.name)
         return
 
-    target_agent = str(payload.get("to", DEFAULT_AGENT)).strip().lower()
-    if target_agent not in AGENTS:
-        logging.warning("Unknown target agent '%s' in %s. Fallback to %s", target_agent, source_path.name, DEFAULT_AGENT)
-        log_event("COMMS_UNKNOWN_AGENT", f"source={source_path.name} target={target_agent}")
-        target_agent = DEFAULT_AGENT
+    meta = payload.setdefault("meta", {})
+    target_agent = canonical_agent_id(str(meta.get("to") or payload.get("to") or TARGET_AGENT), TARGET_AGENT)
+    meta["to"] = target_agent
 
-    prompt = str(payload.get("content") or payload.get("instruction") or "").strip()
+    if target_agent != TARGET_AGENT:
+        logging.warning("Unexpected comm target '%s' in ace inbox: %s", target_agent, source_path.name)
+        log_event("COMMS_WRONG_TARGET", f"source={source_path.name} target={target_agent}")
+        try:
+            move_to_deadletter(source_path, f"wrong_target_{target_agent}")
+        except Exception:
+            logging.exception("Failed moving wrong-target file to deadletter: %s", source_path.name)
+        return
+
+    prompt = extract_prompt(payload)
     if not prompt:
         logging.warning("Comm message has no content: %s", source_path.name)
         log_event("COMMS_EMPTY", f"source={source_path.name}")
+        try:
+            move_to_deadletter(source_path, "empty_content")
+        except Exception:
+            logging.exception("Failed moving empty-content file to deadletter: %s", source_path.name)
         return
+
+    meta["status"] = "processing"
+    meta["processing_started_at_kst"] = now_kst_iso()
+    try:
+        write_json_atomic(source_path, payload)
+    except Exception:
+        logging.exception("Failed setting processing status for: %s", source_path.name)
+        log_event("COMMS_STATUS_UPDATE_FAILED", f"source={source_path.name} status=processing")
 
     try:
         routed_output = asyncio.run(
-            route_to_agent(target_agent, prompt, include_memory=target_agent == "ace")
+            route_to_agent(TARGET_AGENT, prompt, include_memory=True)
         ).strip()
     except Exception:
         logging.exception("Comm routing failed; fallback used for %s", source_path.name)
-        log_event("COMMS_LLM_FALLBACK", f"source={source_path.name} agent={target_agent}")
+        log_event("COMMS_LLM_FALLBACK", f"source={source_path.name} agent={TARGET_AGENT}")
         routed_output = render_markdown(prompt)
 
     try:
-        report_path = write_verified_report(target_agent, source_path.name, routed_output)
-        source_path.unlink()
-        log_event("COMMS_PROCESSED", f"source={source_path.name} target={target_agent} output={report_path.name}")
-        logging.info("Processed comm file %s -> %s (agent: %s)", source_path.name, report_path.name, target_agent)
+        report_path = write_verified_report(TARGET_AGENT, source_path.name, routed_output)
+        meta["status"] = "done"
+        meta["processed_by"] = "nanoclaw-agent"
+        meta["processed_at_kst"] = now_kst_iso()
+        archived_path = archive_done_message(source_path, payload)
+        log_event(
+            "COMMS_PROCESSED",
+            f"source={source_path.name} target={TARGET_AGENT} output={report_path.name} archived={archived_path.name}",
+        )
+        logging.info(
+            "Processed comm file %s -> %s (agent: %s, archived: %s)",
+            source_path.name,
+            report_path.name,
+            TARGET_AGENT,
+            archived_path.name,
+        )
     except Exception:
         logging.exception("Failed finalizing comm file: %s", source_path.name)
-        log_event("COMMS_PROCESS_ERROR", f"source={source_path.name}")
+        log_event("COMMS_PROCESS_ERROR", f"source={source_path.name} agent={TARGET_AGENT}")
+        if source_path.exists():
+            try:
+                move_to_deadletter(source_path, "finalize_error")
+            except Exception:
+                logging.exception("Failed moving errored file to deadletter: %s", source_path.name)
 
 
 class TextInboxHandler(FileSystemEventHandler):
@@ -223,7 +357,7 @@ def process_backlog() -> None:
     for txt_file in sorted(INBOX_DIR.glob("*.txt")):
         process_text_file(txt_file)
 
-    for comm_file in sorted(COMMS_DIR.glob("*.json")):
+    for comm_file in sorted(COMMS_ACE_INBOX_DIR.glob("*.json")):
         process_comm_file(comm_file)
 
 
@@ -231,7 +365,10 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
     INBOX_DIR.mkdir(parents=True, exist_ok=True)
-    COMMS_DIR.mkdir(parents=True, exist_ok=True)
+    COMMS_ACE_INBOX_DIR.mkdir(parents=True, exist_ok=True)
+    COMMS_OUTBOX_ROOT.mkdir(parents=True, exist_ok=True)
+    COMMS_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+    COMMS_DEADLETTER_DIR.mkdir(parents=True, exist_ok=True)
     VAULT_DIR.mkdir(parents=True, exist_ok=True)
     VERIFIED_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -240,10 +377,10 @@ def main() -> None:
     observer = Observer()
     lock = Lock()
     observer.schedule(TextInboxHandler(lock), str(INBOX_DIR), recursive=False)
-    observer.schedule(CommsInboxHandler(lock), str(COMMS_DIR), recursive=False)
+    observer.schedule(CommsInboxHandler(lock), str(COMMS_ACE_INBOX_DIR), recursive=False)
     observer.start()
     log_event("STARTUP", "NanoClaw watcher started")
-    logging.info("NanoClaw monitoring started: inbox=%s comms=%s", INBOX_DIR, COMMS_DIR)
+    logging.info("NanoClaw monitoring started: inbox=%s comms=%s", INBOX_DIR, COMMS_ACE_INBOX_DIR)
 
     try:
         while True:

@@ -7,7 +7,7 @@ import { persistRoutedMessage, updateForwardStatus } from "@/lib/db";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const N8N_INBOX_DIR = "/Users/isanginn/Workspace/agent_workspace/shared_data/n8n_inbox";
+const N8N_INBOX_DIR = path.resolve(process.cwd(), "shared_data", "n8n_inbox");
 
 type ProxyBody = {
   agentId?: unknown;
@@ -90,7 +90,11 @@ export async function POST(request: Request) {
   });
 
   const proxyMode = process.env.PROXY_MODE?.toLowerCase() ?? "store";
-  const webhookUrl = process.env.N8N_WEBHOOK_URL?.trim();
+  const webhookUrl = (
+    process.env.N8N_WEBHOOK_URL_HOST?.trim() ||
+    process.env.N8N_WEBHOOK_URL?.trim() ||
+    "http://localhost:5678/webhook/hermes-trend"
+  );
   const token = process.env.N8N_WEBHOOK_AUTH_TOKEN?.trim();
 
   let forwarded = false;

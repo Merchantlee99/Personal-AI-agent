@@ -48,12 +48,26 @@
 - 루트 파일시스템 read-only 운영(필요 경로는 볼륨으로 분리)
 - 리소스 제한(memory/cpu)
 
+## 3.1 n8n 데이터 영속성
+- `n8n` 컨테이너는 아래 볼륨으로 상태를 유지:
+  - `n8n_data:/home/node/.n8n`
+- 보존되는 데이터:
+  - owner 계정
+  - 워크플로우
+  - credential metadata
+- 주의: 아래 명령 시 영속 데이터 삭제 가능
+  - `docker compose down -v`
+  - `docker volume rm agent_workspace_n8n_data`
+
 ## 4. 데이터 분리 정책
 
 - 코드: Git 저장소
 - 런타임 데이터: `shared_data/*`
 - 비밀값: `.env.local` (Git 추적 금지)
 - 샘플값: `.env.local.example` (Git 추적 허용)
+
+추가 권장:
+- `N8N_ENCRYPTION_KEY`를 고정 설정해 credential 암호화 키를 안정화할 것.
 
 ## 5. 푸시 전/후 유출 방지 장치
 
@@ -81,3 +95,8 @@
 - Docker 이미지 취약점 스캔(Trivy) 추가
 - 역할 기반 토큰 분리(개발/운영 키 분리)
 - 로그 마스킹 정책 도입
+
+## 8. 로컬 n8n 운영 메모
+- 로컬 owner 계정은 형식이 맞는 이메일이면 생성 가능(실수신 검증 강제 아님).
+- 다만 퍼블릭 저장소에는 실제 운영용 계정/비밀번호를 커밋하지 않는 것을 권장.
+- 본 저장소의 `docs/N8N_LOCAL_ACCOUNT.md`는 개발/로컬 테스트 목적이며 프로덕션 사용 금지.

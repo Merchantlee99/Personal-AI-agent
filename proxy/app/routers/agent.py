@@ -7,10 +7,12 @@ from __future__ import annotations
 
 import asyncio
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List, Optional
 
 import google.generativeai as genai
+import httpx
 from anthropic import AsyncAnthropic
 from fastapi import APIRouter, HTTPException
 from openai import AsyncOpenAI
@@ -22,6 +24,51 @@ router = APIRouter()
 
 PERSONAS_DIR = Path("/app/personas")
 VAULT_DIR = Path("/app/vault")
+KST = timezone(timedelta(hours=9))
+DEFAULT_LOCAL_WEBHOOK = "http://n8n:5678/webhook/hermes-trend"
+N8N_WEBHOOK_URL_INTERNAL = os.getenv("N8N_WEBHOOK_URL_INTERNAL", "").strip()
+N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "").strip()
+AGENT_ALIASES = {
+    "ace": "ace",
+    "에이스": "ace",
+    "morpheus": "ace",
+    "모르피어스": "ace",
+    "owl": "owl",
+    "clio": "owl",
+    "클리오": "owl",
+    "dolphin": "dolphin",
+    "hermes": "dolphin",
+    "헤르메스": "dolphin",
+}
+
+
+def _resolve_n8n_webhook_url() -> str:
+    return N8N_WEBHOOK_URL_INTERNAL or N8N_WEBHOOK_URL or DEFAULT_LOCAL_WEBHOOK
+
+OBSIDIAN_FORMAT_GUIDE = """
+반드시 아래 형식의 옵시디언 마크다운으로만 답변해.
+- YAML frontmatter 필수
+- 파일명은 kebab-case 제안
+- 본문은 한국어
+- 과한 장식/강조(**) 금지
+
+템플릿:
+---
+tags: [topic]
+source: user_request
+created: YYYY-MM-DD
+status: processed
+related: [[관련노트]]
+---
+# 제목
+## 핵심 요약 (3줄)
+## 상세 내용
+## 핵심 질문 (NotebookLM용)
+- Q1:
+- Q2:
+## 인사이트
+## 관련 노트 연결
+"""
 
 # 에이전트 설정
 AGENT_CONFIG = {
@@ -31,20 +78,23 @@ AGENT_CONFIG = {
         "model": "claude-opus-4-6",
         "persona_file": "ace.md",
         "include_memory": True,
+        "memory_file": "MEMORY.md",
     },
     "owl": {
         "name": "Clio",
         "provider": "anthropic",
         "model": "claude-sonnet-4-5-20250929",
         "persona_file": "owl.md",
-        "include_memory": False,
+        "include_memory": True,
+        "memory_file": "MEMORY_CLIO.md",
     },
     "dolphin": {
         "name": "Hermes",
         "provider": "anthropic",
         "model": "claude-sonnet-4-5-20250929",
         "persona_file": "dolphin.md",
-        "include_memory": False,
+        "include_memory": True,
+        "memory_file": "MEMORY_HERMES.md",
     },
 }
 
@@ -67,6 +117,12 @@ class AgentChatResponse(BaseModel):
     model: str
 
 
+def _normalize_agent_id(agent_id: str) -> str:
+    raw = (agent_id or "").strip()
+    lowered = raw.lower()
+    return AGENT_ALIASES.get(lowered) or AGENT_ALIASES.get(raw) or raw
+
+
 def _load_persona(agent_id: str) -> str:
     config = AGENT_CONFIG.get(agent_id)
     if not config:
@@ -77,16 +133,44 @@ def _load_persona(agent_id: str) -> str:
     return f"You are the {agent_id} agent."
 
 
-def _load_memory() -> str:
-    memory_path = VAULT_DIR / "MEMORY.md"
+def _load_memory(agent_id: str) -> str:
+    config = AGENT_CONFIG.get(agent_id) or {}
+    memory_file = config.get("memory_file", "")
+    if not memory_file:
+        return ""
+    memory_path = VAULT_DIR / memory_file
     if memory_path.exists():
         return memory_path.read_text(encoding="utf-8")
     return ""
 
 
+def _today_kst() -> str:
+    return datetime.now(KST).strftime("%Y-%m-%d")
+
+
+async def _fetch_n8n_search(query: str) -> tuple[str, str]:
+    webhook_url = _resolve_n8n_webhook_url()
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        resp = await client.post(
+            webhook_url,
+            json={"message": query, "source": "nanoclaw", "agentId": "dolphin"},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    if isinstance(data, list):
+        data = data[0] if data else {}
+
+    final_text = str(data.get("final_text", "")).strip()
+    filename = str(data.get("filename", "")).strip()
+    return final_text, filename
+
+
 @router.post("/agent", response_model=AgentChatResponse)
 async def agent_chat(req: AgentChatRequest):
-    config = AGENT_CONFIG.get(req.agent_id)
+    normalized_agent_id = _normalize_agent_id(req.agent_id)
+    config = AGENT_CONFIG.get(normalized_agent_id)
     if not config:
         raise HTTPException(
             status_code=400,
@@ -94,11 +178,46 @@ async def agent_chat(req: AgentChatRequest):
         )
 
     # 시스템 프롬프트 구성
-    system = _load_persona(req.agent_id)
+    system = _load_persona(normalized_agent_id)
     if config.get("include_memory"):
-        memory = _load_memory()
+        memory = _load_memory(normalized_agent_id)
         if memory:
             system += f"\n\n<current_memory>\n{memory}\n</current_memory>"
+
+    if normalized_agent_id == "owl":
+        system += (
+            "\n\n<obsidian_output_contract>\n"
+            + OBSIDIAN_FORMAT_GUIDE.replace("YYYY-MM-DD", _today_kst())
+            + "\n</obsidian_output_contract>"
+        )
+
+    user_message = req.message
+    if normalized_agent_id == "dolphin":
+        try:
+            final_text, filename = await _fetch_n8n_search(req.message)
+            if final_text:
+                trimmed = final_text[:12000]
+                user_message = (
+                    f"[요청]\n{req.message}\n\n"
+                    f"[n8n 웹검색 결과 | file={filename or '-'}]\n{trimmed}\n\n"
+                    f"[작성 지시]\n"
+                    f"- HOT / INSIGHT / MONITOR로 분류\n"
+                    f"- 각 항목에 근거 1줄, 출처 표기\n"
+                    f"- 불확실 정보는 '⚠️ 확인 필요' 표기\n"
+                    f"- 마지막에 추천 액션 3개 제시"
+                )
+            else:
+                user_message = (
+                    f"{req.message}\n\n"
+                    f"[안내] n8n 검색 결과가 비어 있음. 비어 있음을 명시하고 보수적으로 답변할 것."
+                )
+        except Exception as exc:
+            user_message = (
+                f"{req.message}\n\n"
+                f"[안내] n8n 검색 호출 실패: {str(exc)}\n"
+                f"- 실패 사실을 먼저 명시\n"
+                f"- 확인 불가 항목은 '⚠️ 확인 필요'로 표기"
+            )
 
     # 대화 히스토리 구성
     messages = []
@@ -106,7 +225,7 @@ async def agent_chat(req: AgentChatRequest):
         for msg in req.history:
             if msg.role in {"user", "assistant"}:
                 messages.append({"role": msg.role, "content": msg.content})
-    messages.append({"role": "user", "content": req.message})
+    messages.append({"role": "user", "content": user_message})
 
     provider = config["provider"]
     model = config["model"]
@@ -123,7 +242,7 @@ async def agent_chat(req: AgentChatRequest):
 
         # 에이스 응답에서 memory_update 태그 처리
         memory_updated = False
-        if req.agent_id == "ace":
+        if normalized_agent_id == "ace":
             clean_content, updates = extract_memory_updates(content)
             if updates:
                 memory_updated = apply_memory_updates(updates)
@@ -132,7 +251,7 @@ async def agent_chat(req: AgentChatRequest):
                     content = "요청한 내용을 MEMORY.md에 기록했어."
 
         return AgentChatResponse(
-            agent_id=req.agent_id,
+            agent_id=normalized_agent_id,
             agent_name=config["name"],
             content=content,
             model=model,

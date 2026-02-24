@@ -20,10 +20,21 @@
 - 컨테이너 런타임: OrbStack(Docker Compose)
 - 에이전트 실행: `nanoclaw-agent` 컨테이너
 - API 게이트웨이: Next.js API 라우터 + `llm-proxy`
+- 워크플로우 엔진: `n8n` 컨테이너
 - 외부 검색 경로: `n8n webhook` 경유 후 내부 파이프라인으로 전달
 
 요청 경로 요약:
 `Frontend -> Next.js API -> llm-proxy / n8n -> shared_data -> nanoclaw`
+
+## 2.2 에이전트 ID/별칭 정책
+- 내부 canonical ID(고정):
+  - `ace`, `owl`, `dolphin`
+- 사용자/프롬프트 별칭(정규화):
+  - `ace | 에이스 | morpheus | 모르피어스 -> ace`
+  - `owl | clio | 클리오 -> owl`
+  - `dolphin | hermes | 헤르메스 -> dolphin`
+
+이 정책은 Next API, llm-proxy, nanoclaw, comms scripts에 공통 적용됩니다.
 
 ## 3. 구축 과정 요약
 현재 저장소는 아래 순서로 스캐폴딩/확장되었습니다.
@@ -49,9 +60,25 @@
 
 ### 4.2 검색 플로우
 1. 요청이 llm-proxy `/api/search`로 전달
-2. llm-proxy가 n8n webhook 호출
+2. llm-proxy가 내부 URL(`N8N_WEBHOOK_URL_INTERNAL`)로 n8n webhook 호출
 3. n8n 응답(`final_text`, `filename`)을 수신
 4. 필요 시 shared_data 경로에 파일 저장/후속 처리
+
+### 4.3 에이전트 간 비동기 통신 플로우
+1. 에이전트가 `outbox/{agent}`에 JSON 메시지 생성
+2. `agent/comms/router.py`가 대상 `inbox/{agent}`로 전달 (`pending -> delivered`)
+3. `nanoclaw`가 `inbox/ace`를 처리 (`processing -> done`)
+4. 처리 완료 메시지는 `archive/YYYYMMDD`로 이동
+5. 실패 메시지는 `deadletter`로 이동
+
+경로: `shared_data/agent_comms/{inbox,outbox,archive,deadletter}`
+
+## 4.4 에이전트 메모리 분리
+- Morpheus: `shared_data/obsidian_vault/MEMORY.md`
+- Clio: `shared_data/obsidian_vault/MEMORY_CLIO.md`
+- Hermes: `shared_data/obsidian_vault/MEMORY_HERMES.md`
+
+목적: 최소권한 컨텍스트 공유와 역할별 응답 품질 안정화.
 
 ## 5. 운영 원칙
 

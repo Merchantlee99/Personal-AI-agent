@@ -7,7 +7,13 @@ from pydantic import BaseModel
 
 router = APIRouter()
 
-N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "")
+DEFAULT_LOCAL_WEBHOOK = "http://n8n:5678/webhook/hermes-trend"
+N8N_WEBHOOK_URL_INTERNAL = os.getenv("N8N_WEBHOOK_URL_INTERNAL", "").strip()
+N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "").strip()
+
+
+def resolve_n8n_webhook_url() -> str:
+    return N8N_WEBHOOK_URL_INTERNAL or N8N_WEBHOOK_URL or DEFAULT_LOCAL_WEBHOOK
 
 
 class SearchRequest(BaseModel):
@@ -23,13 +29,12 @@ class SearchResponse(BaseModel):
 
 @router.post("/search", response_model=SearchResponse)
 async def web_search(req: SearchRequest):
-    if not N8N_WEBHOOK_URL:
-        raise HTTPException(status_code=500, detail="N8N_WEBHOOK_URL not configured")
+    webhook_url = resolve_n8n_webhook_url()
 
     try:
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(
-                N8N_WEBHOOK_URL,
+                webhook_url,
                 json={"message": req.query, "source": req.source, "agentId": req.agentId},
             )
             resp.raise_for_status()

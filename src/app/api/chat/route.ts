@@ -13,14 +13,39 @@ interface ChatRequestBody {
   history?: ChatMessage[];
 }
 
+const AGENT_ALIASES: Record<string, "ace" | "owl" | "dolphin"> = {
+  ace: "ace",
+  "에이스": "ace",
+  morpheus: "ace",
+  "모르피어스": "ace",
+  owl: "owl",
+  clio: "owl",
+  "클리오": "owl",
+  dolphin: "dolphin",
+  hermes: "dolphin",
+  "헤르메스": "dolphin",
+};
+
+function normalizeAgentId(agentId: string): "ace" | "owl" | "dolphin" | null {
+  const normalized = agentId.trim().toLowerCase();
+  return AGENT_ALIASES[normalized] ?? AGENT_ALIASES[agentId.trim()] ?? null;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body: ChatRequestBody = await request.json();
     const { agentId, message, history } = body;
+    const canonicalAgentId = normalizeAgentId(agentId);
 
     if (!agentId || !message) {
       return NextResponse.json(
         { error: "agentId and message are required" },
+        { status: 400 }
+      );
+    }
+    if (!canonicalAgentId) {
+      return NextResponse.json(
+        { error: `Unknown agentId: ${agentId}` },
         { status: 400 }
       );
     }
@@ -30,7 +55,7 @@ export async function POST(request: NextRequest) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        agent_id: agentId,
+        agent_id: canonicalAgentId,
         message,
         history: history || [],
       }),
