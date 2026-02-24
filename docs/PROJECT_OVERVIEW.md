@@ -16,6 +16,15 @@
 - 오케스트레이션 계층: Next.js API 라우터 + llm-proxy(FastAPI)
 - 실행 계층: nanoclaw-agent(파일 감시/처리), n8n(웹검색), shared_data 저장소
 
+## 2.1 실제 운영 배치(로컬)
+- 컨테이너 런타임: OrbStack(Docker Compose)
+- 에이전트 실행: `nanoclaw-agent` 컨테이너
+- API 게이트웨이: Next.js API 라우터 + `llm-proxy`
+- 외부 검색 경로: `n8n webhook` 경유 후 내부 파이프라인으로 전달
+
+요청 경로 요약:
+`Frontend -> Next.js API -> llm-proxy / n8n -> shared_data -> nanoclaw`
+
 ## 3. 구축 과정 요약
 현재 저장소는 아래 순서로 스캐폴딩/확장되었습니다.
 

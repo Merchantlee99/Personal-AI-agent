@@ -29,6 +29,7 @@
 - All user input must pass through `/api/proxy`.
 - API route writes payloads into SQLite and can optionally forward to n8n.
 - `nanoclaw-agent` runs with `read_only: true`, `cap_drop: [ALL]`, internal-only Docker network.
+- Local deployment is containerized with OrbStack + Docker Compose, with routing/server/proxy boundaries separated.
 
 ## Safe Public Push Guard
 Before pushing to a public GitHub repository, enable the pre-push guard:
