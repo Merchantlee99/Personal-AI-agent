@@ -1,0 +1,147 @@
+{
+  "id": "hermes-daily-briefing-schedule",
+  "createdAt": "2026-02-25T00:00:00.000Z",
+  "updatedAt": "2026-02-25T00:00:00.000Z",
+  "name": "Hermes Daily Briefing Scheduler",
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "mode": "everyDay",
+              "hour": 9,
+              "minute": 0
+            }
+          ]
+        }
+      },
+      "id": "4a088d20-4a80-4c2a-94f9-3a39f9971c4b",
+      "name": "Daily 09:00 Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [
+        -900,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [\n  // KR IT/Tech blogs\n  { json: { source: 'YozmIT', feed_url: 'https://yozm.wishket.com/magazine/feed/', locale: 'ko', category: 'KR_IT_BLOG' } },\n  { json: { source: 'WoowahanTech', feed_url: 'https://techblog.woowahan.com/feed/', locale: 'ko', category: 'KR_IT_BLOG' } },\n  { json: { source: 'KakaoTech', feed_url: 'https://tech.kakao.com/feed/', locale: 'ko', category: 'KR_IT_BLOG' } },\n  { json: { source: 'TossTech', feed_url: 'https://toss.tech/rss.xml', locale: 'ko', category: 'KR_IT_BLOG' } },\n  { json: { source: 'NaverD2', feed_url: 'https://d2.naver.com/d2.atom', locale: 'ko', category: 'KR_IT_BLOG' } },\n  { json: { source: 'Danggeun(Alt:Medium)', feed_url: 'https://medium.com/feed/daangn', locale: 'ko', category: 'KR_IT_BLOG' } },\n  { json: { source: 'InflabTech', feed_url: 'https://tech.inflab.com/rss.xml', locale: 'ko', category: 'KR_IT_BLOG' } },\n\n  // Global AI / DeepTech\n  { json: { source: 'TLDR', feed_url: 'https://tldr.tech/rss', locale: 'global', category: 'GLOBAL_AI' } },\n  { json: { source: 'OpenAI', feed_url: 'https://openai.com/news/rss.xml', locale: 'global', category: 'GLOBAL_AI' } },\n  { json: { source: 'GoogleDeepMind', feed_url: 'https://deepmind.google/blog/rss.xml', locale: 'global', category: 'GLOBAL_AI' } },\n  { json: { source: 'HuggingFace', feed_url: 'https://huggingface.co/blog/feed.xml', locale: 'global', category: 'GLOBAL_AI' } },\n\n  // Global community & magazine\n  { json: { source: 'Dev.to', feed_url: 'https://dev.to/feed', locale: 'global', category: 'GLOBAL_DEV_COMMUNITY' } },\n  { json: { source: 'Lobsters', feed_url: 'https://lobste.rs/rss', locale: 'global', category: 'GLOBAL_DEV_COMMUNITY' } },\n];"
+      },
+      "id": "b5ce84e6-a4f7-40bb-a2d5-0718cf630d09",
+      "name": "Build Feed List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -680,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{$json.feed_url}}",
+        "options": {}
+      },
+      "id": "d8bd87f5-f5ff-4609-b188-c8739c9330a5",
+      "name": "RSS Read",
+      "type": "n8n-nodes-base.rssFeedRead",
+      "typeVersion": 1.2,
+      "position": [
+        -460,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const now = new Date();\nconst cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);\nconst allItems = $input.all().map((entry) => entry.json || {});\nconst uniqueByUrl = new Map();\n\nconst hostMap = [\n  { match: 'yozm.wishket.com', source: 'YozmIT', locale: 'ko', category: 'KR_IT_BLOG' },\n  { match: 'techblog.woowahan.com', source: 'WoowahanTech', locale: 'ko', category: 'KR_IT_BLOG' },\n  { match: 'tech.kakao.com', source: 'KakaoTech', locale: 'ko', category: 'KR_IT_BLOG' },\n  { match: 'toss.tech', source: 'TossTech', locale: 'ko', category: 'KR_IT_BLOG' },\n  { match: 'd2.naver.com', source: 'NaverD2', locale: 'ko', category: 'KR_IT_BLOG' },\n  { match: 'medium.com', source: 'Danggeun(Alt:Medium)', locale: 'ko', category: 'KR_IT_BLOG' },\n  { match: 'tech.inflab.com', source: 'InflabTech', locale: 'ko', category: 'KR_IT_BLOG' },\n  { match: 'tldr.tech', source: 'TLDR', locale: 'global', category: 'GLOBAL_AI' },\n  { match: 'openai.com', source: 'OpenAI', locale: 'global', category: 'GLOBAL_AI' },\n  { match: 'deepmind.google', source: 'GoogleDeepMind', locale: 'global', category: 'GLOBAL_AI' },\n  { match: 'huggingface.co', source: 'HuggingFace', locale: 'global', category: 'GLOBAL_AI' },\n  { match: 'dev.to', source: 'Dev.to', locale: 'global', category: 'GLOBAL_DEV_COMMUNITY' },\n  { match: 'lobste.rs', source: 'Lobsters', locale: 'global', category: 'GLOBAL_DEV_COMMUNITY' },\n];\n\nfunction parsePublished(item) {\n  const raw = item.isoDate || item.pubDate || item.published || item.date || '';\n  const dt = raw ? new Date(raw) : null;\n  if (!dt || Number.isNaN(dt.getTime())) return null;\n  return dt;\n}\n\nfunction normalizeHost(url) {\n  try {\n    return new URL(url).hostname.toLowerCase();\n  } catch {\n    return '';\n  }\n}\n\nfunction inferMeta(item, link) {\n  const explicitSource = String(item.source || '').trim();\n  const explicitLocale = String(item.locale || '').trim();\n  const explicitCategory = String(item.category || '').trim();\n\n  if (explicitSource || explicitLocale || explicitCategory) {\n    const locale = explicitLocale || 'ko';\n    return {\n      source: explicitSource || 'unknown',\n      locale,\n      category: explicitCategory || 'OTHER',\n      needs_translation: locale !== 'ko',\n    };\n  }\n\n  const candidates = [\n    String(item.feedUrl || ''),\n    String(item.feed_url || ''),\n    String(item.link || ''),\n    String(item.url || ''),\n    String(link || ''),\n  ].filter(Boolean);\n\n  for (const candidate of candidates) {\n    const host = normalizeHost(candidate);\n    if (!host) continue;\n    const found = hostMap.find((rule) => host.includes(rule.match));\n    if (found) {\n      return {\n        source: found.source,\n        locale: found.locale,\n        category: found.category,\n        needs_translation: found.locale !== 'ko',\n      };\n    }\n  }\n\n  return {\n    source: String(item.feedTitle || item.feed || item.creator || 'unknown').trim(),\n    locale: 'ko',\n    category: 'OTHER',\n    needs_translation: false,\n  };\n}\n\nfor (const item of allItems) {\n  const link = String(item.link || item.url || '').trim();\n  if (!link) continue;\n\n  const publishedAt = parsePublished(item);\n  if (!publishedAt || publishedAt < cutoff || publishedAt > now) continue;\n\n  const meta = inferMeta(item, link);\n  const normalized = {\n    source: meta.source,\n    locale: meta.locale,\n    category: meta.category,\n    needs_translation: meta.needs_translation,\n    title: String(item.title || '').replace(/\\s+/g, ' ').trim(),\n    url: link,\n    published_at: publishedAt.toISOString(),\n    summary: String(item.contentSnippet || item.content || item.summary || item.description || '').replace(/\\s+/g, ' ').trim().slice(0, 260),\n  };\n\n  if (!normalized.title) continue;\n  if (!uniqueByUrl.has(link)) {\n    uniqueByUrl.set(link, normalized);\n  }\n}\n\nconst articles = Array.from(uniqueByUrl.values())\n  .sort((a, b) => new Date(b.published_at).getTime() - new Date(a.published_at).getTime())\n  .slice(0, 60);\n\nconst sourceStats = {};\nfor (const article of articles) {\n  const key = article.source || 'unknown';\n  sourceStats[key] = (sourceStats[key] || 0) + 1;\n}\n\nconst translationRequiredCount = articles.filter((x) => x.needs_translation).length;\nconst periodStart = cutoff.toISOString();\nconst periodEnd = now.toISOString();\n\nconst lines = [];\nlines.push('=== Hermes Daily Trend Input ===');\nlines.push(`period_start: ${periodStart}`);\nlines.push(`period_end: ${periodEnd}`);\nlines.push(`article_count: ${articles.length}`);\nlines.push(`translation_required_count: ${translationRequiredCount}`);\nlines.push(`source_stats: ${JSON.stringify(sourceStats)}`);\nlines.push('');\n\nif (articles.length === 0) {\n  lines.push('지난 24시간 내 신규 RSS 항목이 없습니다.');\n} else {\n  for (const [idx, item] of articles.entries()) {\n    lines.push(`${idx + 1}. [${item.category}][${item.locale}] [${item.source || 'unknown'}] ${item.title}`);\n    lines.push(`   - published_at: ${item.published_at}`);\n    lines.push(`   - url: ${item.url}`);\n    if (item.needs_translation) lines.push('   - note: translation_required');\n    if (item.summary) lines.push(`   - summary: ${item.summary}`);\n    lines.push('');\n  }\n}\n\nreturn [{\n  json: {\n    period_start: periodStart,\n    period_end: periodEnd,\n    digest_text: lines.join('\\n').trim(),\n    translation_required_count: translationRequiredCount,\n    source_stats: sourceStats,\n    articles,\n  },\n}];"
+      },
+      "id": "877616f5-403e-4ac9-a09a-ddbb754e8f25",
+      "name": "Build 24h Digest",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -220,
+        80
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://llm-proxy:8000/api/hermes/daily-briefing",
+        "jsonParameters": true,
+        "options": {
+          "timeout": 120000
+        },
+        "bodyParametersJson": "={\n  \"title\": \"Hermes Daily Trend Briefing\",\n  \"source\": \"n8n_schedule\",\n  \"period_start\": $json.period_start,\n  \"period_end\": $json.period_end,\n  \"translation_required_count\": $json.translation_required_count,\n  \"source_stats\": $json.source_stats,\n  \"digest_text\": $json.digest_text,\n  \"articles\": $json.articles\n}"
+      },
+      "id": "98e6e349-9bf2-4f07-afcc-7c4957cb6da9",
+      "name": "Send To Hermes Queue",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        40,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "Daily 09:00 Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Feed List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Feed List": {
+      "main": [
+        [
+          {
+            "node": "RSS Read",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RSS Read": {
+      "main": [
+        [
+          {
+            "node": "Build 24h Digest",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build 24h Digest": {
+      "main": [
+        [
+          {
+            "node": "Send To Hermes Queue",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "staticData": null,
+  "tags": [],
+  "versionId": "c3de94f1-bcab-4f9f-9839-bf46eb3989da",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "local-template"
+  }
+}

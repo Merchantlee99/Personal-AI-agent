@@ -1,0 +1,140 @@
+{
+  "id": "hermes-trend-local",
+  "createdAt": "2026-02-25T00:00:00.000Z",
+  "updatedAt": "2026-02-25T00:00:00.000Z",
+  "name": "Hermes Trend Local",
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "hermes-trend",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "2ca4f788-9079-4aa2-ae03-c3d81e8d40db",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -680,
+        40
+      ],
+      "webhookId": "hermes-trend-local"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b40fca3d-0101-4e17-9f08-5f6f271bac15",
+              "name": "query",
+              "value": "={{$json.body.query || $json.body.message || \"\"}}",
+              "type": "string"
+            },
+            {
+              "id": "4acc4656-8478-4eb5-95a1-f8ec89de3a67",
+              "name": "source",
+              "value": "={{$json.body.source || \"nanoclaw\"}}",
+              "type": "string"
+            },
+            {
+              "id": "6fc25d63-6820-4bc4-955b-f9f04d332a5f",
+              "name": "agentId",
+              "value": "={{$json.body.agentId || \"dolphin\"}}",
+              "type": "string"
+            },
+            {
+              "id": "4b80916f-7cf4-4095-b650-b1da24cd95a3",
+              "name": "tavily_api_key",
+              "value": "={{$json.body.tavily_api_key || \"\"}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "9ea69dc6-b522-4f9a-8cc4-6c18a59bfc43",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -430,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const query = ($json.query || '').toString().trim();\nconst source = ($json.source || 'nanoclaw').toString();\nconst agentId = ($json.agentId || 'dolphin').toString();\nconst apiKey = ($json.tavily_api_key || '').toString().trim();\n\nif (!query) {\n  return [{ json: { query, source, agentId, answer: '', results: [], error: 'query is empty' } }];\n}\n\nif (!apiKey) {\n  return [{ json: { query, source, agentId, answer: '', results: [], error: 'Tavily API key missing in request body' } }];\n}\n\ntry {\n  const response = await this.helpers.httpRequest({\n    method: 'POST',\n    url: 'https://api.tavily.com/search',\n    body: {\n      api_key: apiKey,\n      query,\n      search_depth: 'basic',\n      max_results: 6,\n      include_answer: true,\n      topic: 'general',\n    },\n    json: true,\n  });\n\n  return [{\n    json: {\n      query,\n      source,\n      agentId,\n      answer: response.answer || '',\n      results: Array.isArray(response.results) ? response.results : [],\n      error: '',\n    },\n  }];\n} catch (e) {\n  return [{\n    json: {\n      query,\n      source,\n      agentId,\n      answer: '',\n      results: [],\n      error: `Tavily request failed: ${String(e.message || e)}`,\n    },\n  }];\n}"
+      },
+      "id": "53a356aa-4d2b-4fec-8d60-8b58dc5bc0b8",
+      "name": "Search Tavily",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -180,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const query = ($json.query || '').toString().trim();\nconst source = ($json.source || 'nanoclaw').toString();\nconst agentId = ($json.agentId || 'dolphin').toString();\nconst answer = ($json.answer || '').toString();\nconst error = ($json.error || '').toString();\nconst results = Array.isArray($json.results) ? $json.results : [];\n\nconst lines = [];\nlines.push('=== 웹 리서치 결과 ===');\nlines.push(`query: ${query}`);\nlines.push(`source: ${source}`);\nlines.push(`agentId: ${agentId}`);\nlines.push(`generated_at: ${new Date().toISOString()}`);\nlines.push('');\n\nif (error) {\n  lines.push('⚠️ 검색 오류');\n  lines.push(error);\n  lines.push('');\n}\n\nif (answer) {\n  lines.push('요약 답변');\n  lines.push(answer);\n  lines.push('');\n}\n\nif (!results.length) {\n  lines.push('검색 결과가 없습니다.');\n} else {\n  lines.push('근거 출처');\n  for (const [index, item] of results.slice(0, 6).entries()) {\n    const title = (item.title || 'Untitled').toString().trim();\n    const url = (item.url || '').toString().trim();\n    const snippet = (item.content || item.snippet || '').toString().replace(/\\s+/g, ' ').trim();\n\n    lines.push(`${index + 1}. ${title}`);\n    if (url) lines.push(`- url: ${url}`);\n    if (snippet) lines.push(`- summary: ${snippet}`);\n    lines.push('');\n  }\n}\n\nconst filename = `research_${Date.now()}.txt`;\n\nreturn [{\n  json: {\n    final_text: lines.join('\\n').trim(),\n    filename,\n  },\n}];"
+      },
+      "id": "88327190-b88e-4d00-ab6f-84eec3dc7373",
+      "name": "Build Final Text",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        40
+      ]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Search Tavily",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Tavily": {
+      "main": [
+        [
+          {
+            "node": "Build Final Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "staticData": null,
+  "tags": [],
+  "versionId": "b5d755a8-89ab-45f7-ba36-e6d7232c0d08",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "local-template"
+  }
+}

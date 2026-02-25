@@ -8,7 +8,9 @@
     "start": "next start",
     "lint": "next lint",
     "git:guard": "bash scripts/prepush-guard.sh",
-    "git:hooks": "git config core.hooksPath .githooks"
+    "git:hooks": "git config core.hooksPath .githooks",
+    "n8n:test-search": "bash scripts/n8n/test-local-web-search.sh",
+    "n8n:test-briefing": "bash scripts/n8n/test-hermes-daily-briefing.sh"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.1.0",

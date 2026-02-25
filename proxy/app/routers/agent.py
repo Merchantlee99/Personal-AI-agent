@@ -28,6 +28,7 @@ KST = timezone(timedelta(hours=9))
 DEFAULT_LOCAL_WEBHOOK = "http://n8n:5678/webhook/hermes-trend"
 N8N_WEBHOOK_URL_INTERNAL = os.getenv("N8N_WEBHOOK_URL_INTERNAL", "").strip()
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "").strip()
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "").strip()
 AGENT_ALIASES = {
     "ace": "ace",
     "에이스": "ace",
@@ -154,7 +155,12 @@ async def _fetch_n8n_search(query: str) -> tuple[str, str]:
     async with httpx.AsyncClient(timeout=60.0) as client:
         resp = await client.post(
             webhook_url,
-            json={"message": query, "source": "nanoclaw", "agentId": "dolphin"},
+            json={
+                "message": query,
+                "source": "nanoclaw",
+                "agentId": "dolphin",
+                "tavily_api_key": TAVILY_API_KEY,
+            },
         )
         resp.raise_for_status()
         data = resp.json()

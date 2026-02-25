@@ -6,6 +6,7 @@
 - [n8n Local Setup](docs/N8N_LOCAL_SETUP.md)
 - [n8n Local Owner Account (Dev)](docs/N8N_LOCAL_ACCOUNT.md)
 - [Agent Comms Pipeline](docs/AGENT_COMMS_PIPELINE.md)
+- [UI Redesign v1](docs/UI_REDESIGN_V1.md)
 
 ## Stack
 - Next.js (App Router)
@@ -33,6 +34,20 @@
   - `ace|에이스|morpheus|모르피어스 -> ace`
   - `owl|clio|클리오 -> owl`
   - `dolphin|hermes|헤르메스 -> dolphin`
+- Local n8n workflow template added:
+  - `n8n/workflows/hermes-trend-local.template.json`
+- Hermes proactive briefing pipeline added:
+  - `n8n/workflows/hermes-daily-briefing-schedule.template.json`
+  - `llm-proxy /api/hermes/daily-briefing` queues autonomous updates
+  - frontend polls `/api/agent-updates` and appends Hermes auto messages
+- UI interaction polish completed:
+  - center hologram agent core + panel color synchronization by active agent
+  - bottom chat panel opens by panel click, handle-only collapse/expand toggle
+  - auto-growing composer (multiline) + in-field send button + key/click feedback
+  - proactive unread indicators on agent list
+
+## UI Demo Video
+- [Personal AI agent UI.mov](Personal%20AI%20agent%20UI.mov)
 
 ## Quick Start
 1. Copy env template:

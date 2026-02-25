@@ -33,3 +33,435 @@
     font-family: "Pretendard Variable", "IBM Plex Sans KR", "Noto Sans KR", sans-serif;
   }
 }
+
+@keyframes agentGlyphFade {
+  0% {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes agentCorePulse {
+  0%, 100% {
+    opacity: 0.8;
+    transform: translate(-50%, -50%) scale(1);
+    box-shadow: 0 0 20px rgba(255, 255, 255, 0.6), 0 0 40px rgba(var(--agent-rgb), 0.55);
+  }
+  50% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.15);
+    box-shadow: 0 0 30px rgba(255, 255, 255, 0.9), 0 0 60px rgba(var(--agent-rgb), 0.75);
+  }
+}
+
+@keyframes rippleOut {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.6;
+    border-color: rgba(255, 255, 255, 0.6);
+  }
+  50% {
+    border-color: rgba(var(--agent-rgb), 0.75);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(12);
+    opacity: 0;
+    border-color: rgba(var(--agent-rgb), 0.7);
+  }
+}
+
+@keyframes flarePulse {
+  0% {
+    transform: translate(-50%, -50%) scale(0.8);
+    opacity: 0.4;
+    background: radial-gradient(circle, rgba(255,255,255,0.5) 0%, rgba(255,255,255,0) 50%);
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(1.3);
+    opacity: 0.8;
+    background: radial-gradient(
+      circle,
+      rgba(255,255,255,0.8) 0%,
+      rgba(var(--agent-rgb), 0.3) 40%,
+      rgba(255,255,255,0) 70%
+    );
+  }
+}
+
+@keyframes ringBreatheOuter {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.12;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.02);
+    opacity: 0.18;
+  }
+}
+
+@keyframes ringBreatheMiddle {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.2;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.018);
+    opacity: 0.28;
+  }
+}
+
+@keyframes agentSlowSpin {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+@keyframes edgeFlow {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -100;
+  }
+}
+
+@keyframes innerShapePulse {
+  0%, 100% {
+    opacity: 0.92;
+    transform: scale(1);
+    filter: drop-shadow(0 0 5px rgba(255,255,255,0.2));
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+    filter: drop-shadow(0 0 15px rgba(255,255,255,0.5)) drop-shadow(0 0 25px rgba(var(--agent-rgb),0.4));
+  }
+}
+
+@keyframes lineFlicker {
+  0%, 100% {
+    opacity: 0.05;
+    stroke: rgba(255,255,255,0.1);
+  }
+  30% {
+    opacity: 0.4;
+    stroke: rgba(255,255,255,0.5);
+  }
+  35% {
+    opacity: 0.1;
+    stroke: rgba(255,255,255,0.1);
+  }
+  60% {
+    opacity: 0.6;
+    stroke: rgba(var(--agent-rgb),0.8);
+  }
+  65% {
+    opacity: 0.1;
+    stroke: rgba(255,255,255,0.1);
+  }
+}
+
+@keyframes particleDrift {
+  0% {
+    transform: translate(-50%, -50%) rotate(var(--particle-angle)) translateY(-18px);
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.75;
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(var(--particle-angle)) translateY(-120px);
+    opacity: 0;
+  }
+}
+
+@keyframes statusPulse {
+  0%, 100% {
+    box-shadow: 0 0 3px var(--status-pulse-color, rgba(255,255,255,0.6));
+  }
+  50% {
+    box-shadow:
+      0 0 8px var(--status-pulse-color, rgba(255,255,255,0.6)),
+      0 0 12px var(--status-pulse-color, rgba(255,255,255,0.6));
+  }
+}
+
+.agent-glyph {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  overflow: visible;
+  animation: agentGlyphFade 300ms ease-out;
+  background: radial-gradient(
+    circle at center,
+    rgba(var(--agent-rgb), 0.12) 0%,
+    rgba(var(--agent-rgb), 0.04) 30%,
+    transparent 60%
+  );
+}
+
+.agent-glyph-aura {
+  position: absolute;
+  inset: 18%;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(var(--agent-rgb), 0.22) 0%, transparent 70%);
+  filter: blur(10px);
+  pointer-events: none;
+}
+
+.agent-glyph-orbit {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 9999px;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.agent-glyph-orbit-outer {
+  width: calc(var(--glyph-size) * 1);
+  height: calc(var(--glyph-size) * 1);
+  animation: agentSlowRingRotate 30s linear infinite;
+}
+
+@keyframes agentSlowRingRotate {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+.agent-glyph-orbit-ring {
+  width: 100%;
+  height: 100%;
+  border-radius: 9999px;
+  border: 1px dashed rgba(var(--agent-rgb), 0.15);
+  box-shadow:
+    0 0 60px rgba(var(--agent-rgb), 0.08),
+    inset 0 0 60px rgba(var(--agent-rgb), 0.05);
+  animation: ringBreatheOuter 4s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.agent-glyph-orbit-middle {
+  width: calc(var(--glyph-size) * 0.77);
+  height: calc(var(--glyph-size) * 0.77);
+  border: 1px solid rgba(var(--agent-rgb), 0.2);
+  box-shadow: inset 0 0 40px rgba(var(--agent-rgb), 0.08);
+  animation: ringBreatheMiddle 3s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.agent-glyph-orbit-inner {
+  width: calc(var(--glyph-size) * 0.54);
+  height: calc(var(--glyph-size) * 0.54);
+  border: 1px solid rgba(var(--agent-rgb), 0.3);
+  background: radial-gradient(circle, rgba(var(--agent-rgb), 0.1) 0%, transparent 70%);
+  transform: translate(-50%, -50%);
+}
+
+.agent-glyph-shape {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: var(--shape-size);
+  height: var(--shape-size);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  filter: drop-shadow(0 0 15px rgba(var(--agent-rgb), 0.6));
+  will-change: transform, opacity;
+}
+
+.agent-glyph-shape svg {
+  width: var(--shape-size);
+  height: var(--shape-size);
+}
+
+.glyph-edge-flow {
+  stroke-dasharray: 20 80;
+  opacity: 0.7;
+  animation: edgeFlow 4s linear infinite;
+}
+
+.glyph-inner-shape {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: innerShapePulse 2s ease-in-out infinite;
+}
+
+.glyph-connection-line {
+  animation: lineFlicker 3s ease-in-out infinite;
+  animation-delay: var(--line-delay, 0s);
+}
+
+.agent-glyph-core-glow {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.9) 0%,
+    rgba(var(--agent-rgb), 0.7) 40%,
+    transparent 70%
+  );
+  filter: blur(8px);
+  animation: agentCorePulse 2.5s ease-in-out infinite;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.agent-glyph-core-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0%, rgba(255, 255, 255, 0.8) 50%, transparent 100%);
+  animation: agentCorePulse 2.5s ease-in-out infinite;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.agent-glyph-core-ripple {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.6);
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 0;
+  animation: rippleOut 3s ease-out infinite;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.agent-glyph-core-ripple-1 { animation-delay: 0s; }
+.agent-glyph-core-ripple-2 { animation-delay: 1s; }
+.agent-glyph-core-ripple-3 { animation-delay: 2s; }
+
+.agent-glyph-core-flare {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  animation: flarePulse 1.5s ease-in-out infinite alternate;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+.agent-glyph-particles {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.agent-glyph-particle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 2px;
+  height: 2px;
+  border-radius: 50%;
+  background: var(--particle-color, rgba(255,255,255,0.62));
+  opacity: 0;
+  transform: translate(-50%, -50%) rotate(var(--particle-angle)) translateY(-18px);
+  animation: particleDrift 5s ease-out infinite;
+  animation-delay: var(--particle-delay, 0s);
+  will-change: transform, opacity;
+}
+
+.agent-glyph-thinking .agent-glyph-shape {
+  animation: agentSlowSpin 8s linear infinite;
+}
+
+.agent-glyph-warning .agent-glyph-core-glow,
+.agent-glyph-warning .agent-glyph-core-dot {
+  animation-duration: 1.6s;
+}
+
+@keyframes boardNeutralFloat {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes boardThinkingPulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.08);
+  }
+  50% {
+    transform: scale(1.01);
+    box-shadow: 0 0 0 10px rgba(56, 189, 248, 0);
+  }
+}
+
+@keyframes boardWarningShake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-1px);
+  }
+  50% {
+    transform: translateX(1px);
+  }
+  75% {
+    transform: translateX(-1px);
+  }
+}
+
+.agent-board-neutral {
+  animation: boardNeutralFloat 5.2s ease-in-out infinite;
+}
+
+.agent-board-thinking {
+  animation: boardThinkingPulse 1.9s ease-in-out infinite;
+}
+
+.agent-board-warning {
+  animation: boardWarningShake 0.8s ease-in-out infinite;
+}
+
+.agent-chat-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.agent-chat-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.agent-chat-scroll::-webkit-scrollbar-thumb {
+  background: rgba(var(--panel-rgb, 99,102,241), 0.3);
+  border-radius: 2px;
+  transition: background 0.5s ease;
+}
+
+.agent-chat-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(var(--panel-rgb, 99,102,241), 0.5);
+}

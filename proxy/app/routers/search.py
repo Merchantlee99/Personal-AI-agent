@@ -10,6 +10,7 @@ router = APIRouter()
 DEFAULT_LOCAL_WEBHOOK = "http://n8n:5678/webhook/hermes-trend"
 N8N_WEBHOOK_URL_INTERNAL = os.getenv("N8N_WEBHOOK_URL_INTERNAL", "").strip()
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "").strip()
+TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "").strip()
 
 
 def resolve_n8n_webhook_url() -> str:
@@ -35,7 +36,12 @@ async def web_search(req: SearchRequest):
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(
                 webhook_url,
-                json={"message": req.query, "source": req.source, "agentId": req.agentId},
+                json={
+                    "message": req.query,
+                    "source": req.source,
+                    "agentId": req.agentId,
+                    "tavily_api_key": TAVILY_API_KEY,
+                },
             )
             resp.raise_for_status()
             data = resp.json()

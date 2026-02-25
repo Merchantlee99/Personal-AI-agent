@@ -52,6 +52,7 @@ services:
     volumes:
       - ./agent/personas:/app/personas:ro
       - ./shared_data/obsidian_vault:/app/vault:rw
+      - ./shared_data/agent_comms:/app/shared/agent_comms:rw
     expose:
       - "8000"
     restart: unless-stopped
@@ -67,6 +68,9 @@ services:
           cpus: "0.5"
     env_file:
       - .env.local
+    environment:
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE:-Asia/Seoul}
+      - TZ=${TZ:-Asia/Seoul}
     networks:
       - airgap_net
       - external_net
