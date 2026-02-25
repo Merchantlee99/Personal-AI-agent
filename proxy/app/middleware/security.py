@@ -31,7 +31,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
     def __init__(self, app):
         super().__init__(app)
         self.internal_token = os.getenv("LLM_PROXY_INTERNAL_TOKEN", "").strip()
-        raw_bypass = os.getenv("LLM_PROXY_AUTH_BYPASS_PATHS", "/api/hermes/daily-briefing")
+        raw_bypass = os.getenv("LLM_PROXY_AUTH_BYPASS_PATHS", "")
         self.auth_bypass_paths = {
             path.strip()
             for path in raw_bypass.split(",")

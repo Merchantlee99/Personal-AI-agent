@@ -28,6 +28,13 @@
   - server-to-server token forwarding in Next.js `/api/chat` and `agent/llm_client.py`
   - host-published ports restricted to localhost (`127.0.0.1:8000`, `127.0.0.1:5678`)
   - `nanoclaw-agent` token injection path aligned with `env_file: .env.local` (resolved intermittent internal 401)
+- Week 1.5 hardening completed:
+  - `llm-proxy` rootfs hardened (`read_only: true`, `tmpfs: /tmp`)
+  - `n8n` hardened (`cap_drop: [ALL]`, `security_opt: no-new-privileges:true`, `read_only: true`, `tmpfs` for writable runtime paths)
+  - `n8n` image pinned from `latest` to `n8nio/n8n:2.9.2`
+  - `/api/hermes/daily-briefing` auth bypass removed, n8n HTTP node now injects `x-internal-token`
+  - internal secret rotation utility added: `npm run security:rotate-internal`
+  - `.env` rotation backups are ignored by git (`.env.local.bak.*`)
 - Local n8n routing standardized:
   - internal: `N8N_WEBHOOK_URL_INTERNAL=http://n8n:5678/webhook/hermes-trend`
   - host: `N8N_WEBHOOK_URL_HOST=http://localhost:5678/webhook/hermes-trend`
@@ -96,10 +103,25 @@ https://github.com/user-attachments/assets/4318c31c-bd72-4c80-b956-c75428228906
 ## Security Rules Implemented
 - Client never calls external webhook directly.
 - Chat input path is `Frontend -> /api/chat -> llm-proxy`; `/api/proxy` is legacy store/forward route.
-- `llm-proxy` internal APIs require `x-internal-token` (except temporary bypass paths).
+- `llm-proxy` internal APIs require `x-internal-token` for `/api/*` (no default bypass).
 - `nanoclaw-agent` runs with `read_only: true`, `cap_drop: [ALL]`, `no-new-privileges:true`, internal-only Docker network.
-- `n8n` state persists via Docker volume: `n8n_data:/home/node/.n8n`.
+- `llm-proxy` and `n8n` run with hardened rootfs (`read_only`) and tmpfs for runtime writable paths.
+- `n8n` state persists via Docker volume: `n8n_data:/home/node/.n8n` and credentials are encrypted by `N8N_ENCRYPTION_KEY`.
 - Local deployment is containerized with OrbStack + Docker Compose, with routing/server/proxy boundaries separated.
+
+## Internal Secret Rotation
+Use internal-only secret rotation for service-to-service auth:
+
+```bash
+npm run security:rotate-internal
+```
+
+This rotates:
+- `LLM_PROXY_INTERNAL_TOKEN`
+- `N8N_WEBHOOK_AUTH_TOKEN`
+- `N8N_BASIC_AUTH_PASSWORD`
+
+and recreates `llm-proxy`, `nanoclaw-agent`, `n8n`.
 
 ## Safe Public Push Guard
 Before pushing to a public GitHub repository, enable the pre-push guard:

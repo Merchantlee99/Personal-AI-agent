@@ -70,6 +70,15 @@
       "parameters": {
         "method": "POST",
         "url": "http://llm-proxy:8000/api/hermes/daily-briefing",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-internal-token",
+              "value": "={{$env.LLM_PROXY_INTERNAL_TOKEN}}"
+            }
+          ]
+        },
         "jsonParameters": true,
         "options": {
           "timeout": 120000

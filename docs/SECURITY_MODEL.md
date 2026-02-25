@@ -49,9 +49,10 @@
 - 리소스 제한(memory/cpu)
 
 현재 상태 요약(2026-02-25):
-- `nanoclaw-agent`: 위 정책 적용 완료
-- `llm-proxy`: `cap_drop: [ALL]`, `no-new-privileges:true`, non-root 적용 / `read_only`는 아직 미적용
-- `n8n`: 데이터 영속성 및 localhost 바인딩 적용 / `cap_drop`, `no-new-privileges`, `read_only`는 미적용(로드맵 항목)
+- `nanoclaw-agent`: 위 정책 적용 완료 (`read_only`, `cap_drop: [ALL]`, `no-new-privileges:true`)
+- `llm-proxy`: 적용 완료 (`read_only: true`, `tmpfs: /tmp`, `cap_drop: [ALL]`, `no-new-privileges:true`)
+- `n8n`: 적용 완료 (`read_only: true`, `tmpfs: /tmp`, `/home/node/.cache`, `cap_drop: [ALL]`, `no-new-privileges:true`)
+- `n8n` 이미지 고정: `n8nio/n8n:2.9.2` (latest 미사용)
 
 ## 3.1 n8n 데이터 영속성
 - `n8n` 컨테이너는 아래 볼륨으로 상태를 유지:
@@ -71,24 +72,26 @@
 - 비밀값: `.env.local` (Git 추적 금지)
 - 샘플값: `.env.local.example` (Git 추적 허용)
 
-추가 권장:
-- `N8N_ENCRYPTION_KEY`를 고정 설정해 credential 암호화 키를 안정화할 것.
+운영 적용:
+- `N8N_ENCRYPTION_KEY` 고정 설정으로 credential at-rest 암호화 키를 유지 운영.
 
 ## 4.1 내부 API 인증 정책
 - `llm-proxy`의 `/api/*` 경로는 `x-internal-token` 검증을 기본 강제.
 - Next.js `/api/chat` 및 `nanoclaw-agent`는 동일 토큰을 서버-서버 헤더로 전달.
 - 참고: `nanoclaw-agent` 토큰 누락 시 `401 Unauthorized`가 발생하며, 현재는 `env_file` 정렬로 해결됨.
-- 예외: `/api/hermes/daily-briefing`은 n8n 연동 호환을 위해 임시 bypass 경로로 열려 있음(제거 예정).
+- `/api/hermes/daily-briefing`도 동일하게 토큰 필수이며, n8n HTTP 노드에서 `x-internal-token`을 주입.
 
 ## 4.2 현재 보안 점검 스냅샷
 - 강점:
   - 네트워크 분리(`airgap_net`/`external_net`)와 localhost 포트 바인딩
   - 에이전트 컨테이너 최소 권한 실행
   - 서버-서버 토큰 인증/요청 제한(body size, rate limit)
+  - `llm-proxy`, `n8n` read-only rootfs + tmpfs 적용
+  - `n8n` 버전 핀으로 예측 가능성 확보
 - 남은 리스크:
-  - n8n 컨테이너 하드닝 미완료
-  - `/api/hermes/daily-briefing` 임시 인증 예외 존재
-  - `N8N_ENCRYPTION_KEY` 고정 운영 전
+  - 내부 토큰/비밀번호 자동 로테이션은 수동 트리거 기반(주기 스케줄링 미완료)
+  - 외부 API 키는 수동 로테이션 필요
+  - 캘린더 OAuth refresh token 보관/교체 운영 절차 강화 필요
 
 ## 5. 푸시 전/후 유출 방지 장치
 
@@ -109,6 +112,15 @@
 2. `git status`에서 민감 파일 추적 여부 재확인
 3. `.env.local` 미추적 상태 확인
 4. 필요 시 키 로테이션(노출 이력 의심 시)
+
+내부 비밀값 로테이션:
+```bash
+npm run security:rotate-internal
+```
+회전 대상:
+- `LLM_PROXY_INTERNAL_TOKEN`
+- `N8N_WEBHOOK_AUTH_TOKEN`
+- `N8N_BASIC_AUTH_PASSWORD`
 
 ## 7. 권장 추가 보안
 

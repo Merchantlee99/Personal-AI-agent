@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # ── NanoClaw AI Agent (에어갭 격리) ──
   nanoclaw-agent:
@@ -39,6 +37,9 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
     deploy:
       resources:
         limits:
@@ -61,8 +62,16 @@ services:
 
   # ── n8n (웹검색 + 필터링) ──
   n8n:
-    image: n8nio/n8n:latest
+    image: n8nio/n8n:2.9.2
     container_name: nanoclaw-n8n
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m
+      - /home/node/.cache:size=64m,uid=1000,gid=1000
     deploy:
       resources:
         limits:
