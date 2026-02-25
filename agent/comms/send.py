@@ -7,19 +7,20 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-VALID_AGENTS = {"ace", "owl", "dolphin"}
-AGENT_ALIASES = {
-    "ace": "ace",
-    "에이스": "ace",
-    "morpheus": "ace",
-    "모르피어스": "ace",
-    "owl": "owl",
-    "clio": "owl",
-    "클리오": "owl",
-    "dolphin": "dolphin",
-    "hermes": "dolphin",
-    "헤르메스": "dolphin",
-}
+try:
+    from agent.shared_config import (
+        VALID_AGENT_IDS,
+        canonical_agent_id as canonical_agent_id_shared,
+    )
+except ImportError:
+    import sys
+
+    sys.path.append(str(Path(__file__).resolve().parents[1]))
+    from shared_config import (
+        VALID_AGENT_IDS,
+        canonical_agent_id as canonical_agent_id_shared,
+    )
+
 MESSAGE_TYPES = {"report", "request", "handoff", "alert"}
 PRIORITY_LEVELS = {"high", "normal", "low"}
 KST = timezone(timedelta(hours=9))
@@ -42,8 +43,7 @@ def resolve_comms_root() -> Path:
 
 
 def canonical_agent_id(raw: str) -> str:
-    value = raw.strip().lower()
-    return AGENT_ALIASES.get(value, value)
+    return canonical_agent_id_shared(raw, "")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -66,11 +66,11 @@ def main() -> None:
     to_agent = canonical_agent_id(args.to)
     callback_to = canonical_agent_id(args.callback_to) if args.callback_to else from_agent
 
-    if from_agent not in VALID_AGENTS:
+    if from_agent not in VALID_AGENT_IDS:
         raise SystemExit(f"Invalid --from agent: {from_agent}")
-    if to_agent not in VALID_AGENTS:
+    if to_agent not in VALID_AGENT_IDS:
         raise SystemExit(f"Invalid --to agent: {to_agent}")
-    if callback_to not in VALID_AGENTS:
+    if callback_to not in VALID_AGENT_IDS:
         raise SystemExit(f"Invalid --callback-to agent: {callback_to}")
 
     now = now_kst()

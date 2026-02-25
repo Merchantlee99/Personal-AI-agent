@@ -1,11 +1,13 @@
 import time
 import os
+import logging
 
 import httpx
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 DEFAULT_LOCAL_WEBHOOK = "http://n8n:5678/webhook/hermes-trend"
 N8N_WEBHOOK_URL_INTERNAL = os.getenv("N8N_WEBHOOK_URL_INTERNAL", "").strip()
@@ -45,8 +47,9 @@ async def web_search(req: SearchRequest):
             )
             resp.raise_for_status()
             data = resp.json()
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except Exception:
+        logger.exception("Search webhook call failed")
+        raise HTTPException(status_code=502, detail="Search webhook call failed")
 
     # n8n response can be a list
     if isinstance(data, list):

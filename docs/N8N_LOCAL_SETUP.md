@@ -16,11 +16,14 @@ N8N_WEBHOOK_URL_INTERNAL=http://n8n:5678/webhook/hermes-trend
 N8N_WEBHOOK_URL_HOST=http://localhost:5678/webhook/hermes-trend
 N8N_WEBHOOK_URL=http://localhost:5678/webhook/hermes-trend
 TAVILY_API_KEY=tvly-...
+LLM_PROXY_INTERNAL_TOKEN=...
 ```
 
 주의:
 - 현재 구성은 `llm-proxy`가 `tavily_api_key`를 n8n webhook body에 포함해 전달합니다.
 - n8n의 Code 노드에서 `$env` 접근이 차단된 경우에도 동작하도록 설계되었습니다.
+- 보안 미들웨어가 적용된 환경에서는 n8n -> llm-proxy HTTP Request 노드에
+  `x-internal-token: {{$env.LLM_PROXY_INTERNAL_TOKEN}}` 헤더를 추가해야 합니다.
 
 ## 방법 A: 템플릿 Import (권장)
 1. n8n 접속: `http://localhost:5678`
@@ -40,6 +43,8 @@ TAVILY_API_KEY=tvly-...
 - `/Users/isanginn/Workspace/Agent_Workspace/n8n/workflows/hermes-daily-briefing-schedule.template.json`
 - 구성: `Cron(매일 09:00) -> RSS Read -> 24h Digest -> llm-proxy /api/hermes/daily-briefing`
 - 목적: 사용자 입력 없이 Hermes 자동 브리핑 큐 적재
+- 현재는 호환을 위해 `/api/hermes/daily-briefing`가 임시 bypass 경로로 열려 있을 수 있습니다.
+  운영 보안 강화 시 bypass 제거 후 위 헤더 방식으로 고정하세요.
 
 ### Hermes Daily Briefing RSS 소스 설계 (현재 반영)
 - KR IT/기술 블로그:
@@ -119,6 +124,13 @@ curl -X POST http://localhost:8000/api/search \
 - `502 from llm-proxy`
   - 원인: 내부 URL(`http://n8n:5678/webhook/hermes-trend`) 호출 실패
   - 조치: n8n 직접 호출이 먼저 성공하는지 확인
+
+- `401 Unauthorized from llm-proxy`
+  - 원인: `x-internal-token` 헤더 누락 또는 값 불일치
+  - 조치:
+    1. `.env.local`의 `LLM_PROXY_INTERNAL_TOKEN` 확인
+    2. n8n HTTP Request 노드 헤더 추가 (`x-internal-token`)
+    3. `docker compose up -d --force-recreate llm-proxy n8n`
 
 - Tavily 4xx/5xx
   - 원인: `TAVILY_API_KEY` 누락/만료 또는 할당량 초과

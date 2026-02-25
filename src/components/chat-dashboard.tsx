@@ -1,6 +1,6 @@
 "use client";
 
-import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -39,6 +39,7 @@ type AgentUpdate = {
   type: string;
   source: string;
   createdAt: string;
+  ackKey: string;
 };
 
 type ProviderUsage = {
@@ -66,6 +67,7 @@ const CHAT_PANEL_MIN_HEIGHT = 260;
 const CHAT_PANEL_COLLAPSED_HEIGHT = 62;
 const COMPOSER_MIN_HEIGHT = 24;
 const COMPOSER_MAX_HEIGHT = 200;
+const SEEN_UPDATE_CACHE_LIMIT = 4000;
 
 const AGENT_THEME: Record<AgentId, AgentTheme> = {
   ace: { main: "#4338CA", glow: "#6366F1", rgb: "99,102,241" },
@@ -446,6 +448,9 @@ export function ChatDashboard() {
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const seenUpdateIdsRef = useRef<Set<string>>(new Set());
+  const seenUpdateOrderRef = useRef<string[]>([]);
+  const historiesRef = useRef<Record<AgentId, ChatMessage[]>>(INITIAL_HISTORIES);
+  const selectedAgentIdRef = useRef<AgentId>(selectedAgentId);
   const resizeStartYRef = useRef(0);
   const resizeStartHeightRef = useRef(420);
 
@@ -462,6 +467,21 @@ export function ChatDashboard() {
   const activeTheme = AGENT_THEME[selectedAgentId];
   const activeHistory = histories[selectedAgentId] ?? [];
   const composerMaxHeight = COMPOSER_MAX_HEIGHT;
+  const rememberSeenUpdateKey = useCallback((key: string) => {
+    if (seenUpdateIdsRef.current.has(key)) {
+      return;
+    }
+    seenUpdateIdsRef.current.add(key);
+    seenUpdateOrderRef.current.push(key);
+
+    const overflow = seenUpdateOrderRef.current.length - SEEN_UPDATE_CACHE_LIMIT;
+    if (overflow > 0) {
+      const staleKeys = seenUpdateOrderRef.current.splice(0, overflow);
+      for (const staleKey of staleKeys) {
+        seenUpdateIdsRef.current.delete(staleKey);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -469,6 +489,14 @@ export function ChatDashboard() {
 
   useEffect(() => {
     setUnreadByAgent((prev) => ({ ...prev, [selectedAgentId]: 0 }));
+  }, [selectedAgentId]);
+
+  useEffect(() => {
+    historiesRef.current = histories;
+  }, [histories]);
+
+  useEffect(() => {
+    selectedAgentIdRef.current = selectedAgentId;
   }, [selectedAgentId]);
 
   useEffect(() => {
@@ -515,51 +543,70 @@ export function ChatDashboard() {
           return;
         }
 
-        const fresh = incoming.filter((item) => {
+        const validUpdates = incoming.filter((item) => {
           if (!isAgentId(item.agentId)) {
             return false;
           }
           if (!item.content?.trim()) {
             return false;
           }
-          if (seenUpdateIdsRef.current.has(item.id)) {
+          if (!item.ackKey?.trim()) {
             return false;
           }
-          seenUpdateIdsRef.current.add(item.id);
           return true;
         });
 
-        if (fresh.length === 0) {
-          return;
+        const fresh = validUpdates.filter((item) => {
+          const dedupeKey = `${item.ackKey}:${item.id}:${item.createdAt}`;
+          if (seenUpdateIdsRef.current.has(item.id)) {
+            return false;
+          }
+          if (seenUpdateIdsRef.current.has(dedupeKey)) {
+            return false;
+          }
+          rememberSeenUpdateKey(item.id);
+          rememberSeenUpdateKey(dedupeKey);
+          return true;
+        });
+
+        if (fresh.length > 0) {
+          setHistories((prev) => {
+            const next = { ...prev };
+            for (const update of fresh) {
+              const content = `${update.title}\n\n${update.content}`.trim();
+              const message: ChatMessage = {
+                id: update.id,
+                role: "assistant",
+                content: normalizeAssistantContent(content),
+                createdAt: update.createdAt || new Date().toISOString(),
+                origin: "proactive",
+              };
+              next[update.agentId] = [...(next[update.agentId] ?? []), message];
+            }
+            return next;
+          });
+
+          setUnreadByAgent((prev) => {
+            const next = { ...prev };
+            for (const update of fresh) {
+              if (update.agentId !== selectedAgentIdRef.current) {
+                next[update.agentId] += 1;
+              }
+            }
+            return next;
+          });
+
+          setChatPanelOpen(true);
         }
 
-        setHistories((prev) => {
-          const next = { ...prev };
-          for (const update of fresh) {
-            const content = `${update.title}\n\n${update.content}`.trim();
-            const message: ChatMessage = {
-              id: update.id,
-              role: "assistant",
-              content: normalizeAssistantContent(content),
-              createdAt: update.createdAt || new Date().toISOString(),
-              origin: "proactive",
-            };
-            next[update.agentId] = [...(next[update.agentId] ?? []), message];
-          }
-          return next;
-        });
-
-        setUnreadByAgent((prev) => {
-          const next = { ...prev };
-          for (const update of fresh) {
-            if (update.agentId !== selectedAgentId) {
-              next[update.agentId] += 1;
-            }
-          }
-          return next;
-        });
-
-        setChatPanelOpen(true);
+        const ackKeys = [...new Set(validUpdates.map((item) => item.ackKey))];
+        if (ackKeys.length > 0) {
+          await fetch("/api/agent-updates", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ackKeys }),
+          });
+        }
       } catch {
         // Ignore polling failures and retry on next interval.
       }
@@ -574,7 +621,7 @@ export function ChatDashboard() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [selectedAgentId]);
+  }, [rememberSeenUpdateKey]);
 
   const clampChatHeight = (height: number) => {
     const maxHeight = typeof window === "undefined"
@@ -668,7 +715,7 @@ export function ChatDashboard() {
       [agentId]: [...(prev[agentId] ?? []), message]
     }));
 
-    if (agentId !== selectedAgentId && message.role !== "user") {
+    if (agentId !== selectedAgentIdRef.current && message.role !== "user") {
       setUnreadByAgent((prev) => ({
         ...prev,
         [agentId]: prev[agentId] + 1
@@ -697,6 +744,7 @@ export function ChatDashboard() {
 
   const sendToSingleAgent = async (message: string) => {
     const agentId = selectedAgentId;
+    const baseHistory = historiesRef.current[agentId] ?? [];
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
@@ -704,10 +752,10 @@ export function ChatDashboard() {
       createdAt: new Date().toISOString()
     };
 
-    const nextHistory = [...(histories[agentId] ?? []), userMessage];
+    const nextHistory = [...baseHistory, userMessage];
     setHistories((prev) => ({
       ...prev,
-      [agentId]: nextHistory
+      [agentId]: [...(prev[agentId] ?? []), userMessage]
     }));
 
     setPendingAgents([agentId]);
@@ -748,19 +796,33 @@ export function ChatDashboard() {
         dolphin: QUICK_PROMPT_BY_AGENT.dolphin.value,
       };
 
-      const nextHistories: Record<AgentId, ChatMessage[]> = {
-        ace: [...(histories.ace ?? []), { id: crypto.randomUUID(), role: "user", content: messagesByAgent.ace, createdAt: nowIso }],
-        owl: [...(histories.owl ?? []), { id: crypto.randomUUID(), role: "user", content: messagesByAgent.owl, createdAt: nowIso }],
-        dolphin: [...(histories.dolphin ?? []), { id: crypto.randomUUID(), role: "user", content: messagesByAgent.dolphin, createdAt: nowIso }],
+      const userMessages: Record<AgentId, ChatMessage> = {
+        ace: { id: crypto.randomUUID(), role: "user", content: messagesByAgent.ace, createdAt: nowIso },
+        owl: { id: crypto.randomUUID(), role: "user", content: messagesByAgent.owl, createdAt: nowIso },
+        dolphin: { id: crypto.randomUUID(), role: "user", content: messagesByAgent.dolphin, createdAt: nowIso },
+      };
+      const requestHistories: Record<AgentId, ChatMessage[]> = {
+        ace: [...(historiesRef.current.ace ?? []), userMessages.ace],
+        owl: [...(historiesRef.current.owl ?? []), userMessages.owl],
+        dolphin: [...(historiesRef.current.dolphin ?? []), userMessages.dolphin],
       };
 
-      setHistories(nextHistories);
+      setHistories((prev) => ({
+        ...prev,
+        ace: [...(prev.ace ?? []), userMessages.ace],
+        owl: [...(prev.owl ?? []), userMessages.owl],
+        dolphin: [...(prev.dolphin ?? []), userMessages.dolphin],
+      }));
       setPendingAgents(AGENTS.map((agent) => agent.id));
 
       const results = await Promise.all(
         AGENTS.map(async (agent) => {
           try {
-            const content = await requestAgentReply(agent.id, messagesByAgent[agent.id], nextHistories[agent.id]);
+            const content = await requestAgentReply(
+              agent.id,
+              messagesByAgent[agent.id],
+              requestHistories[agent.id]
+            );
             return {
               agentId: agent.id,
               message: {
@@ -796,7 +858,7 @@ export function ChatDashboard() {
       setUnreadByAgent((prev) => {
         const next = { ...prev };
         for (const result of results) {
-          if (result.agentId !== selectedAgentId) {
+          if (result.agentId !== selectedAgentIdRef.current) {
             next[result.agentId] += 1;
           }
         }

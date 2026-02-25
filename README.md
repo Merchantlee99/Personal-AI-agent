@@ -7,6 +7,8 @@
 - [n8n Local Owner Account (Dev)](docs/N8N_LOCAL_ACCOUNT.md)
 - [Agent Comms Pipeline](docs/AGENT_COMMS_PIPELINE.md)
 - [UI Redesign v1](docs/UI_REDESIGN_V1.md)
+- [Google Calendar Read-Only Setup](docs/GOOGLE_CALENDAR_READONLY_SETUP.md)
+- [Security Roadmap](docs/SECURITY_ROADMAP.md)
 
 ## Stack
 - Next.js (App Router)
@@ -20,10 +22,16 @@
 - `n8n`: local workflow engine for trend collection/search webhook
 
 ## Latest Updates (2026-02-25)
+- Week 1 security hardening applied:
+  - `llm-proxy` security middleware (`x-internal-token`, rate limit, body-size guard)
+  - API error detail hardening (`llm/search/agent`)
+  - server-to-server token forwarding in Next.js `/api/chat` and `agent/llm_client.py`
+  - host-published ports restricted to localhost (`127.0.0.1:8000`, `127.0.0.1:5678`)
+  - `nanoclaw-agent` token injection path aligned with `env_file: .env.local` (resolved intermittent internal 401)
 - Local n8n routing standardized:
   - internal: `N8N_WEBHOOK_URL_INTERNAL=http://n8n:5678/webhook/hermes-trend`
   - host: `N8N_WEBHOOK_URL_HOST=http://localhost:5678/webhook/hermes-trend`
-- Agent async comms bus added under `shared_data/agent_comms`:
+- Agent async comms bus under `shared_data/agent_comms`:
   - `inbox/`, `outbox/`, `archive/`, `deadletter/`
   - helper scripts: `agent/comms/send.py`, `agent/comms/router.py`
 - Per-agent memory separation:
@@ -45,6 +53,26 @@
   - bottom chat panel opens by panel click, handle-only collapse/expand toggle
   - auto-growing composer (multiline) + in-field send button + key/click feedback
   - proactive unread indicators on agent list
+- Morpheus calendar read-only integration added:
+  - `llm-proxy /api/calendar/health` and `/api/calendar/events`
+  - `ace` 일정 질의 시 Google Calendar read-only context 자동 주입
+  - 이메일/URL/전화번호 마스킹 옵션 지원 (`GOOGLE_CALENDAR_MASK_SENSITIVE=true`)
+  - OAuth test-user and refresh-token flow documented in `docs/GOOGLE_CALENDAR_READONLY_SETUP.md`
+
+## Runtime Entry Points (Local)
+- Frontend: `http://localhost:3000`
+- Next API:
+  - `POST /api/chat` (primary chat route)
+  - `GET /api/chat` (agent list passthrough)
+  - `POST /api/proxy` (legacy proxy/store-forward route)
+  - `GET/POST /api/agent-updates` (Hermes autonomous updates)
+- llm-proxy:
+  - `GET /health`
+  - `POST /api/agent`, `GET /api/agents`
+  - `POST /api/llm`, `POST /api/search`
+  - `GET /api/calendar/health`, `POST /api/calendar/events`
+  - `POST /api/hermes/daily-briefing`
+- n8n UI: `http://localhost:5678`
 
 ## UI Demo Video
 https://github.com/user-attachments/assets/4318c31c-bd72-4c80-b956-c75428228906
@@ -67,9 +95,9 @@ https://github.com/user-attachments/assets/4318c31c-bd72-4c80-b956-c75428228906
 
 ## Security Rules Implemented
 - Client never calls external webhook directly.
-- All user input must pass through `/api/proxy`.
-- API route writes payloads into SQLite and can optionally forward to n8n.
-- `nanoclaw-agent` runs with `read_only: true`, `cap_drop: [ALL]`, internal-only Docker network.
+- Chat input path is `Frontend -> /api/chat -> llm-proxy`; `/api/proxy` is legacy store/forward route.
+- `llm-proxy` internal APIs require `x-internal-token` (except temporary bypass paths).
+- `nanoclaw-agent` runs with `read_only: true`, `cap_drop: [ALL]`, `no-new-privileges:true`, internal-only Docker network.
 - `n8n` state persists via Docker volume: `n8n_data:/home/node/.n8n`.
 - Local deployment is containerized with OrbStack + Docker Compose, with routing/server/proxy boundaries separated.
 

@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir -r /app/agent/requirements.txt
 COPY nanoclaw.py /app/agent/nanoclaw.py
 COPY llm_client.py /app/agent/llm_client.py
 COPY agent_router.py /app/agent/agent_router.py
+COPY shared_config.py /app/agent/shared_config.py
 COPY __init__.py /app/agent/__init__.py
 COPY personas/ /app/agent/personas/
 

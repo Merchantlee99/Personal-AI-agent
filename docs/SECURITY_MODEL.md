@@ -48,6 +48,11 @@
 - 루트 파일시스템 read-only 운영(필요 경로는 볼륨으로 분리)
 - 리소스 제한(memory/cpu)
 
+현재 상태 요약(2026-02-25):
+- `nanoclaw-agent`: 위 정책 적용 완료
+- `llm-proxy`: `cap_drop: [ALL]`, `no-new-privileges:true`, non-root 적용 / `read_only`는 아직 미적용
+- `n8n`: 데이터 영속성 및 localhost 바인딩 적용 / `cap_drop`, `no-new-privileges`, `read_only`는 미적용(로드맵 항목)
+
 ## 3.1 n8n 데이터 영속성
 - `n8n` 컨테이너는 아래 볼륨으로 상태를 유지:
   - `n8n_data:/home/node/.n8n`
@@ -68,6 +73,22 @@
 
 추가 권장:
 - `N8N_ENCRYPTION_KEY`를 고정 설정해 credential 암호화 키를 안정화할 것.
+
+## 4.1 내부 API 인증 정책
+- `llm-proxy`의 `/api/*` 경로는 `x-internal-token` 검증을 기본 강제.
+- Next.js `/api/chat` 및 `nanoclaw-agent`는 동일 토큰을 서버-서버 헤더로 전달.
+- 참고: `nanoclaw-agent` 토큰 누락 시 `401 Unauthorized`가 발생하며, 현재는 `env_file` 정렬로 해결됨.
+- 예외: `/api/hermes/daily-briefing`은 n8n 연동 호환을 위해 임시 bypass 경로로 열려 있음(제거 예정).
+
+## 4.2 현재 보안 점검 스냅샷
+- 강점:
+  - 네트워크 분리(`airgap_net`/`external_net`)와 localhost 포트 바인딩
+  - 에이전트 컨테이너 최소 권한 실행
+  - 서버-서버 토큰 인증/요청 제한(body size, rate limit)
+- 남은 리스크:
+  - n8n 컨테이너 하드닝 미완료
+  - `/api/hermes/daily-briefing` 임시 인증 예외 존재
+  - `N8N_ENCRYPTION_KEY` 고정 운영 전
 
 ## 5. 푸시 전/후 유출 방지 장치
 

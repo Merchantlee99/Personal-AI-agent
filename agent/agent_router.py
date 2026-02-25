@@ -10,8 +10,10 @@ from pathlib import Path
 
 try:
     from agent.llm_client import call_llm, web_search
+    from agent.shared_config import AGENT_ALIASES, AGENTS, normalize_agent_id as normalize_agent_id_shared
 except ImportError:
     from llm_client import call_llm, web_search
+    from shared_config import AGENT_ALIASES, AGENTS, normalize_agent_id as normalize_agent_id_shared
 
 PERSONAS_DIR = Path("/app/agent/personas")
 VAULT_DIR = Path("/app/shared_data/obsidian_vault")
@@ -19,18 +21,6 @@ COMMS_DIR = Path("/app/shared_data/agent_comms")
 VERIFIED_DIR = Path("/app/shared_data/verified_inbox")
 LOGS_DIR = Path("/app/shared_data/logs")
 KST = timezone(timedelta(hours=9))
-AGENT_ALIASES = {
-    "ace": "ace",
-    "에이스": "ace",
-    "morpheus": "ace",
-    "모르피어스": "ace",
-    "owl": "owl",
-    "clio": "owl",
-    "클리오": "owl",
-    "dolphin": "dolphin",
-    "hermes": "dolphin",
-    "헤르메스": "dolphin",
-}
 
 OBSIDIAN_FORMAT_GUIDE = """
 반드시 아래 형식의 옵시디언 마크다운으로만 답변해.
@@ -56,32 +46,6 @@ related: [[관련노트]]
 ## 관련 노트 연결
 """
 
-# 에이전트 설정
-AGENTS = {
-    "ace": {
-        "provider": "anthropic",
-        "model": "claude-opus-4-6",
-        "persona_file": "ace.md",
-        "memory_file": "MEMORY.md",
-        "include_memory": True,
-    },
-    "owl": {
-        "provider": "anthropic",
-        "model": "claude-sonnet-4-5-20250929",
-        "persona_file": "owl.md",
-        "memory_file": "MEMORY_CLIO.md",
-        "include_memory": True,
-    },
-    "dolphin": {
-        "provider": "anthropic",
-        "model": "claude-sonnet-4-5-20250929",
-        "persona_file": "dolphin.md",
-        "memory_file": "MEMORY_HERMES.md",
-        "include_memory": True,
-    },
-}
-
-
 def load_persona(agent_id: str) -> str:
     """에이전트 페르소나 시스템 프롬프트를 로드"""
     persona_path = PERSONAS_DIR / AGENTS[agent_id]["persona_file"]
@@ -106,9 +70,7 @@ def _today_kst() -> str:
 
 
 def normalize_agent_id(agent_id: str) -> str:
-    raw = (agent_id or "").strip()
-    lowered = raw.lower()
-    return AGENT_ALIASES.get(lowered) or AGENT_ALIASES.get(raw) or raw
+    return normalize_agent_id_shared(agent_id)
 
 
 async def _prepare_prompt(agent_id: str, prompt: str) -> str:

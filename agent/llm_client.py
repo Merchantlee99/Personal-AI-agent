@@ -1,8 +1,17 @@
+import os
 from typing import Optional
 
 import httpx
 
 PROXY_URL = "http://llm-proxy:8000"
+INTERNAL_TOKEN = os.getenv("LLM_PROXY_INTERNAL_TOKEN", "").strip()
+
+
+def _build_headers() -> dict[str, str]:
+    headers = {"Content-Type": "application/json"}
+    if INTERNAL_TOKEN:
+        headers["x-internal-token"] = INTERNAL_TOKEN
+    return headers
 
 
 async def call_llm(
@@ -26,7 +35,7 @@ async def call_llm(
         payload["system"] = system
 
     async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(f"{PROXY_URL}/api/llm", json=payload)
+        resp = await client.post(f"{PROXY_URL}/api/llm", json=payload, headers=_build_headers())
         resp.raise_for_status()
         return resp.json()["content"]
 
@@ -37,6 +46,7 @@ async def web_search(query: str) -> dict:
         resp = await client.post(
             f"{PROXY_URL}/api/search",
             json={"query": query},
+            headers=_build_headers(),
         )
         resp.raise_for_status()
         return resp.json()

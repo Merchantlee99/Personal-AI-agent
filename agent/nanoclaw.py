@@ -14,45 +14,32 @@ from watchdog.observers import Observer
 
 try:
     from agent.agent_router import AGENTS, log_event, route_to_agent
+    from agent.shared_config import (
+        AGENT_ALIASES,
+        VALID_AGENT_IDS,
+        canonical_agent_id as canonical_agent_id_shared,
+    )
 except ImportError:
     from agent_router import AGENTS, log_event, route_to_agent
+    from shared_config import (
+        AGENT_ALIASES,
+        VALID_AGENT_IDS,
+        canonical_agent_id as canonical_agent_id_shared,
+    )
 
 INBOX_DIR = Path("/app/shared_data/n8n_inbox")
 COMMS_ROOT_DIR = Path("/app/shared_data/agent_comms")
 COMMS_INBOX_ROOT = COMMS_ROOT_DIR / "inbox"
-COMMS_ACE_INBOX_DIR = COMMS_INBOX_ROOT / "ace"
 COMMS_OUTBOX_ROOT = COMMS_ROOT_DIR / "outbox"
 COMMS_ARCHIVE_DIR = COMMS_ROOT_DIR / "archive"
 COMMS_DEADLETTER_DIR = COMMS_ROOT_DIR / "deadletter"
+COMMS_USER_INBOX_DIR = COMMS_INBOX_ROOT / "user"
 VAULT_DIR = Path("/app/shared_data/obsidian_vault")
 VERIFIED_DIR = Path("/app/shared_data/verified_inbox")
 
 DEFAULT_AGENT = "owl"
-TARGET_AGENT = "ace"
-AGENT_ALIASES = {
-    "ace": "ace",
-    "에이스": "ace",
-    "morpheus": "ace",
-    "모르피어스": "ace",
-    "owl": "owl",
-    "clio": "owl",
-    "클리오": "owl",
-    "dolphin": "dolphin",
-    "hermes": "dolphin",
-    "헤르메스": "dolphin",
-}
-AGENT_PREFIXES = {
-    "ace_": "ace",
-    "에이스_": "ace",
-    "morpheus_": "ace",
-    "모르피어스_": "ace",
-    "owl_": "owl",
-    "clio_": "owl",
-    "클리오_": "owl",
-    "dolphin_": "dolphin",
-    "hermes_": "dolphin",
-    "헤르메스_": "dolphin",
-}
+DEFAULT_COMM_TARGET = "ace"
+AGENT_PREFIXES = {f"{alias.lower()}_": agent_id for alias, agent_id in AGENT_ALIASES.items()}
 KST = timezone(timedelta(hours=9))
 
 
@@ -95,11 +82,25 @@ def now_kst_iso() -> str:
 
 
 def canonical_agent_id(value: str, fallback: str) -> str:
-    normalized = value.strip().lower()
-    if not normalized:
-        return fallback
-    normalized = AGENT_ALIASES.get(normalized, normalized)
-    return normalized if normalized in AGENTS else fallback
+    return canonical_agent_id_shared(value, fallback)
+
+
+def _path_is_under(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _is_user_inbox_file(path: Path) -> bool:
+    return _path_is_under(path, COMMS_USER_INBOX_DIR)
+
+
+def _is_agent_inbox_file(path: Path) -> bool:
+    if not _path_is_under(path, COMMS_INBOX_ROOT):
+        return False
+    return any(_path_is_under(path, COMMS_INBOX_ROOT / agent_id) for agent_id in VALID_AGENT_IDS)
 
 
 def write_json_atomic(path: Path, payload: dict) -> None:
@@ -233,16 +234,19 @@ def process_comm_file(source_path: Path) -> None:
         return
 
     meta = payload.setdefault("meta", {})
-    target_agent = canonical_agent_id(str(meta.get("to") or payload.get("to") or TARGET_AGENT), TARGET_AGENT)
+    target_agent = canonical_agent_id(
+        str(meta.get("to") or payload.get("to") or DEFAULT_COMM_TARGET),
+        DEFAULT_COMM_TARGET,
+    )
     meta["to"] = target_agent
 
-    if target_agent != TARGET_AGENT:
-        logging.warning("Unexpected comm target '%s' in ace inbox: %s", target_agent, source_path.name)
-        log_event("COMMS_WRONG_TARGET", f"source={source_path.name} target={target_agent}")
+    if target_agent not in AGENTS:
+        logging.warning("Unknown comm target '%s': %s", target_agent, source_path.name)
+        log_event("COMMS_UNKNOWN_TARGET", f"source={source_path.name} target={target_agent}")
         try:
-            move_to_deadletter(source_path, f"wrong_target_{target_agent}")
+            move_to_deadletter(source_path, f"unknown_target_{target_agent}")
         except Exception:
-            logging.exception("Failed moving wrong-target file to deadletter: %s", source_path.name)
+            logging.exception("Failed moving unknown-target file to deadletter: %s", source_path.name)
         return
 
     prompt = extract_prompt(payload)
@@ -265,33 +269,33 @@ def process_comm_file(source_path: Path) -> None:
 
     try:
         routed_output = asyncio.run(
-            route_to_agent(TARGET_AGENT, prompt, include_memory=True)
+            route_to_agent(target_agent, prompt, include_memory=(target_agent == "ace"))
         ).strip()
     except Exception:
         logging.exception("Comm routing failed; fallback used for %s", source_path.name)
-        log_event("COMMS_LLM_FALLBACK", f"source={source_path.name} agent={TARGET_AGENT}")
+        log_event("COMMS_LLM_FALLBACK", f"source={source_path.name} agent={target_agent}")
         routed_output = render_markdown(prompt)
 
     try:
-        report_path = write_verified_report(TARGET_AGENT, source_path.name, routed_output)
+        report_path = write_verified_report(target_agent, source_path.name, routed_output)
         meta["status"] = "done"
         meta["processed_by"] = "nanoclaw-agent"
         meta["processed_at_kst"] = now_kst_iso()
         archived_path = archive_done_message(source_path, payload)
         log_event(
             "COMMS_PROCESSED",
-            f"source={source_path.name} target={TARGET_AGENT} output={report_path.name} archived={archived_path.name}",
+            f"source={source_path.name} target={target_agent} output={report_path.name} archived={archived_path.name}",
         )
         logging.info(
             "Processed comm file %s -> %s (agent: %s, archived: %s)",
             source_path.name,
             report_path.name,
-            TARGET_AGENT,
+            target_agent,
             archived_path.name,
         )
     except Exception:
         logging.exception("Failed finalizing comm file: %s", source_path.name)
-        log_event("COMMS_PROCESS_ERROR", f"source={source_path.name} agent={TARGET_AGENT}")
+        log_event("COMMS_PROCESS_ERROR", f"source={source_path.name} agent={target_agent}")
         if source_path.exists():
             try:
                 move_to_deadletter(source_path, "finalize_error")
@@ -337,6 +341,8 @@ class CommsInboxHandler(FileSystemEventHandler):
         path = Path(event.src_path)
         if path.suffix.lower() != ".json":
             return
+        if _is_user_inbox_file(path) or not _is_agent_inbox_file(path):
+            return
         with self._lock:
             process_comm_file(path)
 
@@ -349,6 +355,8 @@ class CommsInboxHandler(FileSystemEventHandler):
         path = Path(dest_path)
         if path.suffix.lower() != ".json":
             return
+        if _is_user_inbox_file(path) or not _is_agent_inbox_file(path):
+            return
         with self._lock:
             process_comm_file(path)
 
@@ -357,18 +365,26 @@ def process_backlog() -> None:
     for txt_file in sorted(INBOX_DIR.glob("*.txt")):
         process_text_file(txt_file)
 
-    for comm_file in sorted(COMMS_ACE_INBOX_DIR.glob("*.json")):
-        process_comm_file(comm_file)
+    for agent_id in sorted(VALID_AGENT_IDS):
+        agent_inbox = COMMS_INBOX_ROOT / agent_id
+        if not agent_inbox.exists():
+            continue
+        for comm_file in sorted(agent_inbox.rglob("*.json")):
+            process_comm_file(comm_file)
 
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
     INBOX_DIR.mkdir(parents=True, exist_ok=True)
-    COMMS_ACE_INBOX_DIR.mkdir(parents=True, exist_ok=True)
+    COMMS_INBOX_ROOT.mkdir(parents=True, exist_ok=True)
     COMMS_OUTBOX_ROOT.mkdir(parents=True, exist_ok=True)
     COMMS_ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
     COMMS_DEADLETTER_DIR.mkdir(parents=True, exist_ok=True)
+    COMMS_USER_INBOX_DIR.mkdir(parents=True, exist_ok=True)
+    for agent_id in VALID_AGENT_IDS:
+        (COMMS_INBOX_ROOT / agent_id).mkdir(parents=True, exist_ok=True)
+        (COMMS_OUTBOX_ROOT / agent_id).mkdir(parents=True, exist_ok=True)
     VAULT_DIR.mkdir(parents=True, exist_ok=True)
     VERIFIED_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -377,10 +393,10 @@ def main() -> None:
     observer = Observer()
     lock = Lock()
     observer.schedule(TextInboxHandler(lock), str(INBOX_DIR), recursive=False)
-    observer.schedule(CommsInboxHandler(lock), str(COMMS_ACE_INBOX_DIR), recursive=False)
+    observer.schedule(CommsInboxHandler(lock), str(COMMS_INBOX_ROOT), recursive=True)
     observer.start()
     log_event("STARTUP", "NanoClaw watcher started")
-    logging.info("NanoClaw monitoring started: inbox=%s comms=%s", INBOX_DIR, COMMS_ACE_INBOX_DIR)
+    logging.info("NanoClaw monitoring started: inbox=%s comms=%s", INBOX_DIR, COMMS_INBOX_ROOT)
 
     try:
         while True:

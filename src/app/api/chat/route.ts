@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { normalizeAgentIdInput } from "@/lib/agent-config";
 
 const LLM_PROXY_URL = process.env.LLM_PROXY_URL || "http://localhost:8000";
+const LLM_PROXY_INTERNAL_TOKEN = process.env.LLM_PROXY_INTERNAL_TOKEN?.trim() || "";
+const LLM_PROXY_TIMEOUT_MS = Number(process.env.LLM_PROXY_TIMEOUT_MS || "45000");
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -13,22 +16,30 @@ interface ChatRequestBody {
   history?: ChatMessage[];
 }
 
-const AGENT_ALIASES: Record<string, "ace" | "owl" | "dolphin"> = {
-  ace: "ace",
-  "에이스": "ace",
-  morpheus: "ace",
-  "모르피어스": "ace",
-  owl: "owl",
-  clio: "owl",
-  "클리오": "owl",
-  dolphin: "dolphin",
-  hermes: "dolphin",
-  "헤르메스": "dolphin",
-};
-
 function normalizeAgentId(agentId: string): "ace" | "owl" | "dolphin" | null {
-  const normalized = agentId.trim().toLowerCase();
-  return AGENT_ALIASES[normalized] ?? AGENT_ALIASES[agentId.trim()] ?? null;
+  return normalizeAgentIdInput(agentId);
+}
+
+function buildProxyHeaders() {
+  return {
+    "Content-Type": "application/json",
+    ...(LLM_PROXY_INTERNAL_TOKEN
+      ? { "x-internal-token": LLM_PROXY_INTERNAL_TOKEN }
+      : {}),
+  };
+}
+
+async function fetchWithTimeout(input: string, init: RequestInit = {}) {
+  const controller = new AbortController();
+  const timeout = Number.isFinite(LLM_PROXY_TIMEOUT_MS) && LLM_PROXY_TIMEOUT_MS > 0
+    ? LLM_PROXY_TIMEOUT_MS
+    : 45000;
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -51,9 +62,9 @@ export async function POST(request: NextRequest) {
     }
 
     // llm-proxy의 /api/agent 엔드포인트로 전달
-    const proxyResponse = await fetch(`${LLM_PROXY_URL}/api/agent`, {
+    const proxyResponse = await fetchWithTimeout(`${LLM_PROXY_URL}/api/agent`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildProxyHeaders(),
       body: JSON.stringify({
         agent_id: canonicalAgentId,
         message,
@@ -72,6 +83,12 @@ export async function POST(request: NextRequest) {
     const data = await proxyResponse.json();
     return NextResponse.json(data);
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return NextResponse.json(
+        { error: "Agent upstream timeout" },
+        { status: 504 }
+      );
+    }
     console.error("[/api/chat] Error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
@@ -83,10 +100,19 @@ export async function POST(request: NextRequest) {
 // 에이전트 목록 조회
 export async function GET() {
   try {
-    const res = await fetch(`${LLM_PROXY_URL}/api/agents`);
+    const res = await fetchWithTimeout(`${LLM_PROXY_URL}/api/agents`, {
+      headers: buildProxyHeaders(),
+      cache: "no-store",
+    });
     const data = await res.json();
     return NextResponse.json(data);
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      return NextResponse.json(
+        { error: "Agent list upstream timeout" },
+        { status: 504 }
+      );
+    }
     return NextResponse.json(
       { error: "Failed to fetch agents" },
       { status: 502 }

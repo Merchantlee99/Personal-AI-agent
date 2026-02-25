@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { NextResponse } from "next/server";
+import { normalizeAgentIdInput, type CanonicalAgentId } from "@/lib/agent-config";
 
 type QueuedNotification = {
   id?: string;
@@ -16,35 +17,23 @@ type QueuedNotification = {
 
 type AgentUpdate = {
   id: string;
-  agentId: "ace" | "owl" | "dolphin";
+  agentId: CanonicalAgentId;
   agentName: string;
   title: string;
   content: string;
   type: string;
   source: string;
   createdAt: string;
+  ackKey: string;
 };
 
 const USER_INBOX_DIR = path.resolve(process.cwd(), "shared_data", "agent_comms", "inbox", "user");
 const ARCHIVE_ROOT_DIR = path.resolve(process.cwd(), "shared_data", "agent_comms", "archive", "user");
 const DEADLETTER_DIR = path.resolve(process.cwd(), "shared_data", "agent_comms", "deadletter");
 
-const AGENT_ALIASES: Record<string, "ace" | "owl" | "dolphin"> = {
-  ace: "ace",
-  "에이스": "ace",
-  morpheus: "ace",
-  "모르피어스": "ace",
-  owl: "owl",
-  clio: "owl",
-  "클리오": "owl",
-  dolphin: "dolphin",
-  hermes: "dolphin",
-  "헤르메스": "dolphin",
-};
-
-function normalizeAgentId(raw: string | undefined): "ace" | "owl" | "dolphin" {
-  const normalized = (raw ?? "").trim().toLowerCase();
-  return AGENT_ALIASES[normalized] ?? "dolphin";
+function normalizeAgentId(raw: string | undefined): CanonicalAgentId {
+  const normalized = normalizeAgentIdInput(raw ?? "");
+  return normalized ?? "dolphin";
 }
 
 function uniquePath(targetPath: string): Promise<string> {
@@ -92,10 +81,22 @@ async function parseNotification(filePath: string): Promise<AgentUpdate | null> 
       type: String(parsed.type || "daily_briefing"),
       source: String(parsed.source || "n8n_schedule"),
       createdAt: String(parsed.created_at || new Date().toISOString()),
+      ackKey: path.basename(filePath),
     };
   } catch {
     return null;
   }
+}
+
+function sanitizeAckKey(raw: unknown): string | null {
+  if (typeof raw !== "string") {
+    return null;
+  }
+  const normalized = path.basename(raw.trim());
+  if (!normalized || !normalized.endsWith(".json")) {
+    return null;
+  }
+  return normalized;
 }
 
 export async function GET() {
@@ -117,12 +118,57 @@ export async function GET() {
       }
 
       notifications.push(parsed);
-      await moveToArchive(filePath);
     }
 
     return NextResponse.json({ notifications });
   } catch (error) {
     console.error("[/api/agent-updates] error", error);
     return NextResponse.json({ error: "Failed to fetch agent updates" }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = (await request.json().catch(() => null)) as { ackKeys?: unknown } | null;
+    const rawAckKeys = Array.isArray(body?.ackKeys) ? body?.ackKeys : [];
+    const ackKeys = rawAckKeys
+      .map((item) => sanitizeAckKey(item))
+      .filter((item): item is string => Boolean(item));
+
+    if (ackKeys.length === 0) {
+      return NextResponse.json({ acked: 0, missing: 0, deadlettered: 0 });
+    }
+
+    await fs.mkdir(USER_INBOX_DIR, { recursive: true });
+
+    let acked = 0;
+    let missing = 0;
+    let deadlettered = 0;
+
+    for (const ackKey of ackKeys) {
+      const filePath = path.join(USER_INBOX_DIR, ackKey);
+      const parsed = await parseNotification(filePath);
+
+      if (parsed) {
+        await moveToArchive(filePath);
+        acked += 1;
+        continue;
+      }
+
+      try {
+        await fs.access(filePath);
+      } catch {
+        missing += 1;
+        continue;
+      }
+
+      await moveToDeadletter(filePath);
+      deadlettered += 1;
+    }
+
+    return NextResponse.json({ acked, missing, deadlettered });
+  } catch (error) {
+    console.error("[/api/agent-updates POST] error", error);
+    return NextResponse.json({ error: "Failed to acknowledge updates" }, { status: 500 });
   }
 }

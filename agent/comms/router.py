@@ -9,19 +9,20 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-VALID_AGENTS = {"ace", "owl", "dolphin"}
-AGENT_ALIASES = {
-    "ace": "ace",
-    "에이스": "ace",
-    "morpheus": "ace",
-    "모르피어스": "ace",
-    "owl": "owl",
-    "clio": "owl",
-    "클리오": "owl",
-    "dolphin": "dolphin",
-    "hermes": "dolphin",
-    "헤르메스": "dolphin",
-}
+try:
+    from agent.shared_config import (
+        VALID_AGENT_IDS,
+        canonical_agent_id as canonical_agent_id_shared,
+    )
+except ImportError:
+    import sys
+
+    sys.path.append(str(Path(__file__).resolve().parents[1]))
+    from shared_config import (
+        VALID_AGENT_IDS,
+        canonical_agent_id as canonical_agent_id_shared,
+    )
+
 KST = timezone(timedelta(hours=9))
 
 
@@ -34,8 +35,7 @@ def now_kst_iso() -> str:
 
 
 def canonical_agent_id(value: str) -> str:
-    normalized = value.strip().lower()
-    return AGENT_ALIASES.get(normalized, normalized)
+    return canonical_agent_id_shared(value, "")
 
 
 def resolve_comms_root() -> Path:
@@ -109,7 +109,7 @@ def deliver_from_outbox(outbox_root: Path, inbox_root: Path, deadletter_root: Pa
 
             from_agent = canonical_agent_id(str(meta.get("from") or source.parent.name))
             to_agent = canonical_agent_id(str(meta.get("to") or ""))
-            if from_agent not in VALID_AGENTS or to_agent not in VALID_AGENTS:
+            if from_agent not in VALID_AGENT_IDS or to_agent not in VALID_AGENT_IDS:
                 raise ValueError(f"invalid routing: from={from_agent}, to={to_agent}")
 
             meta["from"] = from_agent
@@ -150,14 +150,13 @@ def run_once(comms_root: Path) -> None:
     archive_root = comms_root / "archive"
     deadletter_root = comms_root / "deadletter"
 
-    for agent in VALID_AGENTS:
+    for agent in VALID_AGENT_IDS:
         (outbox_root / agent).mkdir(parents=True, exist_ok=True)
         (inbox_root / agent).mkdir(parents=True, exist_ok=True)
     archive_root.mkdir(parents=True, exist_ok=True)
     deadletter_root.mkdir(parents=True, exist_ok=True)
 
     deliver_from_outbox(outbox_root, inbox_root, deadletter_root)
-    archive_done_from_inbox(inbox_root, archive_root, deadletter_root)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -165,6 +164,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--once", action="store_true", help="Run one routing pass and exit.")
     parser.add_argument("--watch", action="store_true", help="Run continuously.")
     parser.add_argument("--interval", type=int, default=10, help="Watch interval in seconds.")
+    parser.add_argument(
+        "--archive-done",
+        action="store_true",
+        help="Also archive done messages from inbox (disabled by default to avoid overlap with nanoclaw).",
+    )
     return parser
 
 
@@ -177,9 +181,21 @@ def main() -> None:
         logging.info("Router started in watch mode (interval=%ss)", args.interval)
         while True:
             run_once(comms_root)
+            if args.archive_done:
+                archive_done_from_inbox(
+                    comms_root / "inbox",
+                    comms_root / "archive",
+                    comms_root / "deadletter",
+                )
             time.sleep(max(args.interval, 1))
     else:
         run_once(comms_root)
+        if args.archive_done:
+            archive_done_from_inbox(
+                comms_root / "inbox",
+                comms_root / "archive",
+                comms_root / "deadletter",
+            )
         logging.info("Router finished one pass.")
 
 

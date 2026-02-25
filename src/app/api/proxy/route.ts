@@ -8,6 +8,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const N8N_INBOX_DIR = path.resolve(process.cwd(), "shared_data", "n8n_inbox");
+const LEGACY_ROUTE_NOTICE = "legacy-proxy-route";
 
 type ProxyBody = {
   agentId?: unknown;
@@ -51,29 +52,35 @@ function sanitizeFilename(filename: string) {
   return safe.toLowerCase().endsWith(".txt") ? safe : `${safe}.txt`;
 }
 
+function withLegacyHeaders(response: NextResponse) {
+  response.headers.set("x-route-status", LEGACY_ROUTE_NOTICE);
+  response.headers.set("x-route-replaced-by", "/api/chat");
+  return response;
+}
+
 export async function POST(request: Request) {
   let body: ProxyBody;
 
   try {
     body = (await request.json()) as ProxyBody;
   } catch {
-    return NextResponse.json(
+    return withLegacyHeaders(NextResponse.json(
       {
         ok: false,
         error: "Invalid JSON payload"
       },
       { status: 400 }
-    );
+    ));
   }
 
   if (!isNonEmptyString(body.agentId) || !isNonEmptyString(body.message)) {
-    return NextResponse.json(
+    return withLegacyHeaders(NextResponse.json(
       {
         ok: false,
         error: "agentId and message are required"
       },
       { status: 400 }
-    );
+    ));
   }
 
   const sanitizedPayload = {
@@ -148,12 +155,12 @@ export async function POST(request: Request) {
 
   updateForwardStatus(routeId, forwarded, forwardStatus);
 
-  return NextResponse.json({
+  return withLegacyHeaders(NextResponse.json({
     ok: true,
     routeId,
     mode: proxyMode,
     forwarded,
     forwardStatus,
     savedFilename
-  });
+  }));
 }
