@@ -40,7 +40,9 @@
 - `/api/hermes/daily-briefing`: Hermes 자동 브리핑 큐잉
 
 ## 데모 영상
-- [Personal AI agent UI.mov](../Personal%20AI%20agent%20UI.mov)
+https://github.com/user-attachments/assets/d17757ba-e818-45c6-a1f9-667fc74f9b82
+
+
 
 ## 후속 계획
 - API budget 실데이터 연결
