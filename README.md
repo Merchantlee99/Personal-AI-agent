@@ -47,7 +47,9 @@
   - proactive unread indicators on agent list
 
 ## UI Demo Video
-- [Personal AI agent UI.mov](Personal%20AI%20agent%20UI.mov)
+https://github.com/user-attachments/assets/4318c31c-bd72-4c80-b956-c75428228906
+
+
 
 ## Quick Start
 1. Copy env template:
