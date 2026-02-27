@@ -57,12 +57,13 @@
 ## 3.1 n8n 데이터 영속성
 - `n8n` 컨테이너는 아래 볼륨으로 상태를 유지:
   - `n8n_data:/home/node/.n8n`
+- 현재 `n8n_data`는 외부 고정 볼륨(`agent_workspace_n8n_data`)으로 운영되어
+  `docker compose down -v` 시에도 Compose가 자동 삭제하지 않습니다.
 - 보존되는 데이터:
   - owner 계정
   - 워크플로우
   - credential metadata
 - 주의: 아래 명령 시 영속 데이터 삭제 가능
-  - `docker compose down -v`
   - `docker volume rm agent_workspace_n8n_data`
 
 ## 4. 데이터 분리 정책
@@ -121,6 +122,16 @@ npm run security:rotate-internal
 - `LLM_PROXY_INTERNAL_TOKEN`
 - `N8N_WEBHOOK_AUTH_TOKEN`
 - `N8N_BASIC_AUTH_PASSWORD`
+
+크리티컬 런타임 검증:
+```bash
+npm run security:check-critical
+```
+
+신규 환경 볼륨 bootstrap:
+```bash
+npm run security:ensure-volumes
+```
 
 ## 7. 권장 추가 보안
 

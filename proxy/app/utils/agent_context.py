@@ -181,18 +181,33 @@ async def fetch_n8n_search(
     source: str = "nanoclaw",
 ) -> tuple[str, str]:
     webhook_url = resolve_n8n_webhook_url()
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.post(
-            webhook_url,
-            json={
-                "message": query,
-                "source": source,
-                "agentId": (agent_id or "dolphin"),
-                "tavily_api_key": tavily_api_key,
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                webhook_url,
+                json={
+                    "message": query,
+                    "source": source,
+                    "agentId": (agent_id or "dolphin"),
+                    "tavily_api_key": tavily_api_key,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        if status == 404:
+            raise RuntimeError(
+                f"N8N webhook not found or inactive (POST {webhook_url}). "
+                "Activate workflow and verify webhook path."
+            ) from exc
+        raise RuntimeError(
+            f"N8N webhook returned HTTP {status} (POST {webhook_url})."
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise RuntimeError(
+            f"N8N webhook network error (POST {webhook_url}): {exc.__class__.__name__}"
+        ) from exc
 
     if isinstance(data, list):
         data = data[0] if data else {}

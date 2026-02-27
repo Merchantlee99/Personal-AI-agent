@@ -122,3 +122,6 @@
 - 러닝 아카이브: `docs/MEMORY.md`
 - 병렬 운영 규칙: `docs/TEAM_PARALLEL_WORKFLOW.md`
 - 파일 락 보드: `docs/WORK_LOCK_BOARD.md`
+- 운영 플레이북 인덱스: `docs/OPERATIONS_PLAYBOOK.md`
+- 운영 플레이북(공개): `docs/OPERATIONS_PLAYBOOK_PUBLIC.md`
+- 운영 플레이북(비공개 템플릿): `docs/OPERATIONS_PLAYBOOK_PRIVATE_TEMPLATE.md`

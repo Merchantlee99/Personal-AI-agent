@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="${ROOT_DIR}/.env.local"
 RESTART_CONTAINERS=true
+RUN_VERIFY=true
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -15,9 +16,13 @@ while [[ $# -gt 0 ]]; do
       RESTART_CONTAINERS=false
       shift
       ;;
+    --skip-verify)
+      RUN_VERIFY=false
+      shift
+      ;;
     *)
       echo "Unknown option: $1" >&2
-      echo "Usage: $0 [--env-file <path>] [--no-restart]" >&2
+      echo "Usage: $0 [--env-file <path>] [--no-restart] [--skip-verify]" >&2
       exit 1
       ;;
   esac
@@ -89,8 +94,16 @@ if [[ "${RESTART_CONTAINERS}" == true ]]; then
   docker compose up -d --force-recreate llm-proxy nanoclaw-agent n8n
 fi
 
+if [[ "${RUN_VERIFY}" == true ]]; then
+  if [[ "${RESTART_CONTAINERS}" == true ]]; then
+    sleep 2
+  fi
+  bash "${ROOT_DIR}/scripts/security/critical-runtime-check.sh" --env-file "${ENV_FILE}"
+fi
+
 echo "Rotation completed."
 echo "- env: ${ENV_FILE}"
 echo "- backup: ${backup_file}"
 echo "- restarted: ${RESTART_CONTAINERS}"
+echo "- verified: ${RUN_VERIFY}"
 echo "- note: secret values are intentionally not printed."

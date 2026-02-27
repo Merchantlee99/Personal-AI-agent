@@ -10,6 +10,8 @@
     "lint:next": "next lint",
     "git:guard": "bash scripts/prepush-guard.sh",
     "git:hooks": "git config core.hooksPath .githooks",
+    "security:ensure-volumes": "bash scripts/security/ensure-runtime-volumes.sh",
+    "security:check-critical": "bash scripts/security/critical-runtime-check.sh",
     "security:rotate-internal": "bash scripts/security/rotate-internal-secrets.sh",
     "n8n:test-search": "bash scripts/n8n/test-local-web-search.sh",
     "n8n:test-briefing": "bash scripts/n8n/test-hermes-daily-briefing.sh",

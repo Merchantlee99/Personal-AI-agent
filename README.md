@@ -18,6 +18,9 @@
 - [Action Plan](docs/ACTION_PLAN.md)
 - [Memory Archive](docs/MEMORY.md)
 - [Branch Protection Setup](docs/BRANCH_PROTECTION_SETUP.md)
+- [Operations Playbook Index (2-tier)](docs/OPERATIONS_PLAYBOOK.md)
+- [Operations Playbook Public](docs/OPERATIONS_PLAYBOOK_PUBLIC.md)
+- [Operations Playbook Private Template](docs/OPERATIONS_PLAYBOOK_PRIVATE_TEMPLATE.md)
 
 ## Stack
 - Next.js (App Router)
@@ -142,6 +145,18 @@ This rotates:
 - `N8N_BASIC_AUTH_PASSWORD`
 
 and recreates `llm-proxy`, `nanoclaw-agent`, `n8n`.
+
+Critical runtime check:
+
+```bash
+npm run security:check-critical
+```
+
+Ensure runtime volumes (for fresh machines):
+
+```bash
+npm run security:ensure-volumes
+```
 
 ## Parallel Dev Automation
 Thread finisher (lint + guard + commit + push on current branch):
