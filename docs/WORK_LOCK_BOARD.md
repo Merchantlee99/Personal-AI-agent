@@ -9,7 +9,25 @@
 - `REVIEW`: 작업 완료, 리뷰 대기
 - `FREE`: 누구나 작업 가능
 
-## 락 보드 템플릿
+## 현재 락 상태 (Active)
+| Area | Main Files | Owner | Status | Started (KST) | ETA | PR |
+|---|---|---|---|---|---|---|
+| PROXY+SECURITY | `proxy/app/routers/*`, `proxy/app/middleware/*`, `proxy/app/utils/*`, `docker-compose.yml` | `thread-llm-proxy-security` | LOCKED | 2026-02-27 14:49 | 2026-02-27 EOD | - |
+| API | `src/app/api/*`, `src/lib/server/*`, `src/lib/telegram-codes.ts` | `thread-feature-api` | LOCKED | 2026-02-27 14:49 | 2026-02-27 EOD | - |
+| UI/UX | `src/components/*`, `src/app/globals.css` | `thread-ui-ux` | LOCKED | 2026-02-27 14:49 | 2026-02-27 EOD | - |
+| WORKFLOW | `n8n/workflows/*`, `scripts/n8n/*` | `thread-n8n-workflow` | LOCKED | 2026-02-27 14:49 | 2026-02-27 EOD | - |
+| RELEASE CAPTAIN | merge/order/approval only | `this-thread` | LOCKED | 2026-02-27 14:49 | ongoing | - |
+
+## 머지 순서 (고정)
+1. `PROXY+SECURITY`
+2. `API`
+3. `WORKFLOW`
+4. `UI/UX`
+
+사유:
+- 보안/내부 계약을 먼저 고정해야 후속 충돌과 회귀가 줄어듭니다.
+
+## 락 보드 템플릿 (재사용)
 | Area | Main Files | Owner | Status | Started (KST) | ETA | PR |
 |---|---|---|---|---|---|---|
 | UI | `src/components/chat-dashboard.tsx` | - | FREE | - | - | - |
@@ -29,4 +47,4 @@
 3. 작업 종료 후 `REVIEW`로 변경하고 PR 링크 추가.
 4. 머지 완료 후 `FREE`로 복구.
 5. 긴급 보안 이슈는 총책 승인 하에 락 우선권 부여.
-
+6. 범위 외 파일 변경 시 PR에 사유와 영향도를 필수 기재.

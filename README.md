@@ -13,6 +13,7 @@
 - [NotebookLM Manual Pipeline](docs/NOTEBOOKLM_MANUAL_PIPELINE.md)
 - [Team Parallel Workflow](docs/TEAM_PARALLEL_WORKFLOW.md)
 - [Work Lock Board](docs/WORK_LOCK_BOARD.md)
+- [Thread Handoff Prompts](docs/THREAD_HANDOFF_PROMPTS.md)
 - [Protocol](docs/PROTOCOL.md)
 - [Action Plan](docs/ACTION_PLAN.md)
 - [Memory Archive](docs/MEMORY.md)
