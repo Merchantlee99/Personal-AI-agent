@@ -11,6 +11,7 @@
 - [x] Add team role model document (`TEAM_PARALLEL_WORKFLOW.md`)
 - [x] Add work lock board (`WORK_LOCK_BOARD.md`)
 - [x] Add PR template and CODEOWNERS
+- [x] Add branch-protection automation script + setup guide
 - [ ] Apply branch protection rules in GitHub repository settings
 
 ### B. Development Protocolization
@@ -32,3 +33,4 @@
 
 ## Evidence Log
 - 2026-02-27: governance docs + lock board + PR template added.
+- 2026-02-27: branch-protection script and setup guide added (`scripts/security/apply-branch-protection.sh`, `docs/BRANCH_PROTECTION_SETUP.md`).

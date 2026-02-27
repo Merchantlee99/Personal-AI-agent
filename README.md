@@ -16,6 +16,7 @@
 - [Protocol](docs/PROTOCOL.md)
 - [Action Plan](docs/ACTION_PLAN.md)
 - [Memory Archive](docs/MEMORY.md)
+- [Branch Protection Setup](docs/BRANCH_PROTECTION_SETUP.md)
 
 ## Stack
 - Next.js (App Router)
