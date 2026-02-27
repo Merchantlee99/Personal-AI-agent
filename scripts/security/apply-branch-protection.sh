@@ -55,8 +55,8 @@ curl -fsS -X PUT \
     \"required_status_checks\": {
       \"strict\": true,
       \"checks\": [
-        {\"context\": \"CI / lint\"},
-        {\"context\": \"Public Repo Guard / guard\"}
+        {\"context\": \"lint\"},
+        {\"context\": \"guard\"}
       ]
     },
     \"enforce_admins\": true,
