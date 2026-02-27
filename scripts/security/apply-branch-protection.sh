@@ -55,8 +55,8 @@ curl -fsS -X PUT \
     \"required_status_checks\": {
       \"strict\": true,
       \"checks\": [
-        {\"context\": \"CI / lint\"},
-        {\"context\": \"Public Repo Guard / guard\"}
+        {\"context\": \"lint\"},
+        {\"context\": \"guard\"}
       ]
     },
     \"enforce_admins\": true,
@@ -70,10 +70,13 @@ curl -fsS -X PUT \
   }" >/dev/null
 
 echo "[2/3] enforcing linear history"
-curl -fsS -X POST \
+LINEAR_CODE="$(curl -sS -o /tmp/branch_protect_linear.json -w "%{http_code}" -X POST \
   -H "Accept: application/vnd.github+json" \
   -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-  "${API_BASE}/branches/${TARGET_BRANCH}/protection/required_linear_history" >/dev/null
+  "${API_BASE}/branches/${TARGET_BRANCH}/protection/required_linear_history" || true)"
+if [[ "${LINEAR_CODE}" != "200" && "${LINEAR_CODE}" != "201" && "${LINEAR_CODE}" != "204" ]]; then
+  echo "[warn] required_linear_history endpoint returned ${LINEAR_CODE}; continuing." >&2
+fi
 
 echo "[3/3] readback summary"
 curl -fsS \
