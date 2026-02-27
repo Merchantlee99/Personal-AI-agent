@@ -3,6 +3,15 @@
 import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  buildBridgeAgentMap,
+  resolveTelegramBadge,
+  type TelegramBadge,
+} from "@/components/chat-dashboard/telegram-health";
+import { LeftPanel } from "@/components/chat-dashboard/left-panel";
+import { RightPanel } from "@/components/chat-dashboard/right-panel";
+import { useTelegramHealth } from "@/components/chat-dashboard/use-telegram-health";
+import { TELEGRAM_CODES } from "@/lib/telegram-codes";
 import { cn } from "@/lib/utils";
 
 type AgentId = "ace" | "owl" | "dolphin";
@@ -40,15 +49,6 @@ type AgentUpdate = {
   source: string;
   createdAt: string;
   ackKey: string;
-};
-
-type ProviderUsage = {
-  provider: "Anthropic" | "OpenAI" | "Gemini";
-  dailyBudgetUsd: number;
-  usedUsd: number;
-  inputTokens: number;
-  outputTokens: number;
-  errorRate: number;
 };
 
 type AgentTheme = {
@@ -131,7 +131,7 @@ const PARTICLE_PRESETS = [
   { angle: 324, delay: 4.05 }
 ] as const;
 
-const PROVIDER_USAGE: ProviderUsage[] = [
+const PROVIDER_USAGE = [
   {
     provider: "Anthropic",
     dailyBudgetUsd: 80,
@@ -156,13 +156,14 @@ const PROVIDER_USAGE: ProviderUsage[] = [
     outputTokens: 50888,
     errorRate: 0.4
   }
-];
-
-const STATUS_LABEL: Record<AgentStatus, string> = {
-  online: "업무 중",
-  busy: "집중",
-  idle: "대기"
-};
+] satisfies Array<{
+  provider: "Anthropic" | "OpenAI" | "Gemini";
+  dailyBudgetUsd: number;
+  usedUsd: number;
+  inputTokens: number;
+  outputTokens: number;
+  errorRate: number;
+}>;
 
 const INITIAL_CREATED_AT = "2026-02-24T00:00:00.000Z";
 
@@ -219,16 +220,6 @@ function buildApiHistory(history: ChatMessage[]) {
   return history
     .filter((item) => item.role === "user" || item.role === "assistant")
     .map((item) => ({ role: item.role, content: item.content }));
-}
-
-function getUsageColor(percentage: number): string {
-  if (percentage >= 95) {
-    return "bg-rose-400";
-  }
-  if (percentage >= 80) {
-    return "bg-amber-300";
-  }
-  return "bg-emerald-300";
 }
 
 function normalizeAssistantContent(content: string): string {
@@ -443,6 +434,7 @@ export function ChatDashboard() {
   const [isHandleHovered, setIsHandleHovered] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [isSendPressing, setIsSendPressing] = useState(false);
+  const telegramHealth = useTelegramHealth();
 
   const endRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
@@ -466,6 +458,20 @@ export function ChatDashboard() {
   }, [histories, pendingAgents]);
   const activeTheme = AGENT_THEME[selectedAgentId];
   const activeHistory = histories[selectedAgentId] ?? [];
+  const telegramBridge = telegramHealth?.telegram;
+  const telegramCode = telegramHealth?.code ?? TELEGRAM_CODES.HEALTH_UNKNOWN;
+  const telegramBridgeAgentMap = useMemo(
+    () => buildBridgeAgentMap(telegramHealth),
+    [telegramHealth]
+  );
+  const telegramBadgeByAgent = useMemo(
+    () =>
+      AGENTS.reduce<Record<AgentId, TelegramBadge>>((acc, agent) => {
+        acc[agent.id] = resolveTelegramBadge(agent.id, telegramHealth, telegramBridgeAgentMap);
+        return acc;
+      }, {} as Record<AgentId, TelegramBadge>),
+    [telegramBridgeAgentMap, telegramHealth]
+  );
   const composerMaxHeight = COMPOSER_MAX_HEIGHT;
   const rememberSeenUpdateKey = useCallback((key: string) => {
     if (seenUpdateIdsRef.current.has(key)) {
@@ -897,151 +903,38 @@ export function ChatDashboard() {
 
   return (
     <div className="min-h-screen bg-[#020307] text-stone-100">
-      <aside
-        className="fixed z-30 overflow-hidden rounded-[24px] backdrop-blur-xl transition-all duration-500 ease-out"
-        style={{
-          left: ISLAND_GAP,
-          top: "50%",
-          transform: "translateY(-50%)",
-          maxHeight: `calc(100vh - ${SIDE_ISLAND_TOP_BOTTOM_GAP * 2}px)`,
-          width: LEFT_PANEL_WIDTH,
-          background: `linear-gradient(135deg, rgba(${activeTheme.rgb}, 0.06) 0%, rgba(10, 10, 15, 0.95) 100%)`,
-          border: `1px solid rgba(${activeTheme.rgb}, 0.15)`,
-          boxShadow: `0 0 20px rgba(${activeTheme.rgb}, 0.05), inset 0 0 20px rgba(${activeTheme.rgb}, 0.03)`,
-        }}
-      >
-        <div className="flex flex-col p-4">
-          <div className="pb-4">
-            <p
-              className="text-xs uppercase tracking-[0.15em] transition-colors duration-500 ease-out"
-              style={{ color: activeTheme.glow, opacity: 0.8 }}
-            >
-              System Status
-            </p>
-            <h2 className="mt-1 text-lg font-semibold text-white">AI Agents</h2>
-          </div>
+      <LeftPanel
+        width={LEFT_PANEL_WIDTH}
+        topBottomGap={SIDE_ISLAND_TOP_BOTTOM_GAP}
+        islandGap={ISLAND_GAP}
+        activeTheme={activeTheme}
+        agentThemeById={AGENT_THEME}
+        agents={AGENTS.map((agent) => ({
+          id: agent.id,
+          name: agent.name,
+          legacyName: agent.legacyName,
+          role: agent.role,
+          status: agent.status,
+        }))}
+        selectedAgentId={selectedAgentId}
+        unreadByAgent={unreadByAgent}
+        onSelectAgent={setSelectedAgentId}
+      />
 
-          <div className="space-y-2 pr-1">
-            {AGENTS.map((agent) => {
-              const active = selectedAgentId === agent.id;
-              return (
-                <button
-                  key={agent.id}
-                  type="button"
-                  onClick={() => setSelectedAgentId(agent.id)}
-                  className="w-full rounded-xl border px-3 py-3 text-left transition-all duration-500 ease-out hover:bg-white/[0.04] hover:border-white/10"
-                  style={
-                    active
-                      ? {
-                          background: `rgba(${activeTheme.rgb}, 0.1)`,
-                          border: `1px solid rgba(${activeTheme.rgb}, 0.3)`,
-                          borderLeft: `3px solid ${activeTheme.glow}`,
-                          boxShadow: `0 0 15px rgba(${activeTheme.rgb}, 0.1)`,
-                        }
-                      : {
-                          background: "rgba(255,255,255,0.02)",
-                          border: "1px solid rgba(255,255,255,0.06)",
-                          borderLeft: "3px solid transparent",
-                        }
-                  }
-                >
-                  <div className="min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <p
-                        className="truncate text-sm transition-colors duration-500 ease-out"
-                        style={{
-                          color: active ? "#F1F5F9" : "#94A3B8",
-                          fontWeight: active ? 600 : 400,
-                        }}
-                      >
-                        {agent.name}
-                      </p>
-                      {unreadByAgent[agent.id] > 0 ? (
-                        <span
-                          className="h-2.5 w-2.5 rounded-full bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.8)] animate-pulse"
-                          aria-label={`${agent.name} unread notifications`}
-                          title={`${agent.name} unread notifications`}
-                        />
-                      ) : null}
-                    </div>
-                    <p className="truncate text-[12px]" style={{ color: "#64748B" }}>
-                      {agent.legacyName} · {agent.role}
-                    </p>
-                    <div className="mt-1.5 flex items-center gap-1.5 text-[11px]">
-                      <span
-                        className="h-2 w-2 rounded-full transition-all duration-500 ease-out"
-                        style={
-                          {
-                            background:
-                              agent.status === "online"
-                                ? AGENT_THEME[agent.id].glow
-                                : agent.status === "busy"
-                                  ? "#EAB308"
-                                  : "#6B7280",
-                            animation: agent.status === "online" ? "statusPulse 2s ease-in-out infinite" : undefined,
-                            boxShadow:
-                              agent.status === "online"
-                                ? `0 0 6px ${AGENT_THEME[agent.id].glow}`
-                                : undefined,
-                            "--status-pulse-color": AGENT_THEME[agent.id].glow,
-                          } as CSSProperties
-                        }
-                      />
-                      <span className="text-stone-300">{STATUS_LABEL[agent.status]}</span>
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </aside>
-
-      <aside
-        className="fixed z-30 overflow-hidden rounded-[24px] backdrop-blur-xl transition-all duration-500 ease-out"
-        style={{
-          right: ISLAND_GAP,
-          top: "50%",
-          transform: "translateY(-50%)",
-          maxHeight: `calc(100vh - ${SIDE_ISLAND_TOP_BOTTOM_GAP * 2}px)`,
-          width: RIGHT_PANEL_WIDTH,
-          background: `linear-gradient(225deg, rgba(${activeTheme.rgb}, 0.06) 0%, rgba(10, 10, 15, 0.95) 100%)`,
-          border: `1px solid rgba(${activeTheme.rgb}, 0.15)`,
-          boxShadow: `0 0 20px rgba(${activeTheme.rgb}, 0.05), inset 0 0 20px rgba(${activeTheme.rgb}, 0.03)`,
-        }}
-      >
-        <div className="flex flex-col gap-3 overflow-y-auto p-4">
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
-            <p
-              className="text-xs uppercase tracking-[0.15em] transition-colors duration-500 ease-out"
-              style={{ color: activeTheme.glow, opacity: 0.8 }}
-            >
-              API Budget
-            </p>
-            <div className="mt-2 space-y-2">
-              {PROVIDER_USAGE.map((usage) => {
-                const usagePercent = Math.min(Math.round((usage.usedUsd / usage.dailyBudgetUsd) * 100), 100);
-                const remaining = Math.max(usage.dailyBudgetUsd - usage.usedUsd, 0);
-                return (
-                  <div key={usage.provider} className="rounded-lg border border-white/10 bg-black/20 p-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <span>{usage.provider}</span>
-                      <span className="font-semibold" style={{ color: "#E2E8F0" }}>{usagePercent}%</span>
-                    </div>
-                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
-                      <div className={cn("h-full rounded-full", getUsageColor(usagePercent))} style={{ width: `${usagePercent}%` }} />
-                    </div>
-                    <div className="mt-1.5 grid grid-cols-2 gap-y-1 text-[11px]" style={{ color: "#64748B" }}>
-                      <span>남은: ${remaining.toFixed(1)}</span>
-                      <span className="text-right">오류: {usage.errorRate.toFixed(1)}%</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      </aside>
+      <RightPanel
+        width={RIGHT_PANEL_WIDTH}
+        topBottomGap={SIDE_ISLAND_TOP_BOTTOM_GAP}
+        islandGap={ISLAND_GAP}
+        activeTheme={activeTheme}
+        providerUsage={PROVIDER_USAGE}
+        agents={AGENTS.map((agent) => ({ id: agent.id, name: agent.name }))}
+        telegramStatus={telegramHealth?.status ?? null}
+        telegramCode={telegramCode}
+        telegramPollInterval={telegramBridge?.poll_interval_sec ?? null}
+        telegramBackgroundRunning={Boolean(telegramBridge?.background_running)}
+        telegramBadgeByAgent={telegramBadgeByAgent}
+        telegramBridgeAgentMap={telegramBridgeAgentMap}
+      />
 
       <main
         className="relative min-h-screen"

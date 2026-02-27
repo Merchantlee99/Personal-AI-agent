@@ -3,14 +3,28 @@
 실제 MEMORY.md 파일에 내용을 추가하는 유틸리티.
 """
 
+import json
 import logging
+import os
 import re
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 VAULT_DIR = Path("/app/vault")
 MEMORY_FILE = VAULT_DIR / "MEMORY.md"
+
+
+def _quarantine_dir() -> Path:
+    raw = os.getenv("MEMORY_QUARANTINE_DIR", "/app/shared_data/agent_comms/quarantine").strip()
+    if raw.startswith("/app/shared/agent_comms"):
+        raw = raw.replace("/app/shared/agent_comms", "/app/shared_data/agent_comms", 1)
+    return Path(raw)
+
+
+QUARANTINE_DIR = _quarantine_dir()
 
 MEMORY_TAG_PATTERN = re.compile(
     r"<memory_update>\s*(.*?)\s*</memory_update>",
@@ -114,3 +128,39 @@ def apply_memory_updates(updates: list[str]) -> bool:
     except Exception:
         logger.exception("Failed to update MEMORY.md")
         return False
+
+
+def quarantine_memory_updates(
+    updates: list[str],
+    *,
+    reason: str,
+    source_message: str,
+    agent_id: str = "ace",
+) -> str | None:
+    """Store memory updates in quarantine for manual approval."""
+    if not updates:
+        return None
+
+    try:
+        QUARANTINE_DIR.mkdir(parents=True, exist_ok=True)
+        now = datetime.now(timezone.utc)
+        filename = f"memory_update_{now.strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:8]}.json"
+        path = QUARANTINE_DIR / filename
+        payload = {
+            "id": uuid.uuid4().hex,
+            "agent_id": agent_id,
+            "status": "pending_approval",
+            "reason": reason,
+            "created_at": now.isoformat(),
+            "source_message": source_message,
+            "updates": updates,
+        }
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        logger.info("Memory update quarantined: %s", path)
+        return str(path)
+    except Exception:
+        logger.exception("Failed to quarantine memory updates")
+        return None

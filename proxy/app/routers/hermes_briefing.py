@@ -8,13 +8,15 @@ from pathlib import Path
 from typing import Any
 
 from anthropic import AsyncAnthropic
-from fastapi import APIRouter
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field, ValidationError
+
+from app.utils.webhook_auth import verify_n8n_signed_webhook
 
 router = APIRouter()
 
 KST = timezone(timedelta(hours=9))
-USER_INBOX_DIR = Path("/app/shared/agent_comms/inbox/user")
+USER_INBOX_DIR = Path("/app/shared_data/agent_comms/inbox/user")
 
 
 class HermesDailyBriefingRequest(BaseModel):
@@ -30,8 +32,9 @@ class HermesDailyBriefingRequest(BaseModel):
 
 class HermesDailyBriefingResponse(BaseModel):
     status: str
-    notification_id: str
-    queued_path: str
+    notification_id: str | None = None
+    queued_path: str | None = None
+    message: str | None = None
 
 
 def _now_kst() -> datetime:
@@ -131,7 +134,31 @@ async def _render_hermes_briefing(req: HermesDailyBriefingRequest) -> str:
 
 
 @router.post("/hermes/daily-briefing", response_model=HermesDailyBriefingResponse)
-async def enqueue_hermes_daily_briefing(req: HermesDailyBriefingRequest):
+async def enqueue_hermes_daily_briefing(request: Request):
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+    auth_result = verify_n8n_signed_webhook(
+        payload,
+        timestamp_header=request.headers.get("x-webhook-timestamp", ""),
+        signature_header=request.headers.get("x-webhook-signature", ""),
+    )
+    if not auth_result.ok:
+        raise HTTPException(status_code=401, detail=f"Webhook auth failed: {auth_result.message}")
+
+    try:
+        req = HermesDailyBriefingRequest.model_validate(payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors())
+
+    if len(req.articles) == 0:
+        return HermesDailyBriefingResponse(
+            status="skipped",
+            message="No RSS articles in the last 24h. Briefing not queued.",
+        )
+
     content = await _render_hermes_briefing(req)
     now = _now_kst()
     notification_id = str(uuid.uuid4())

@@ -32,6 +32,10 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         super().__init__(app)
         self.internal_token = os.getenv("LLM_PROXY_INTERNAL_TOKEN", "").strip()
         raw_bypass = os.getenv("LLM_PROXY_AUTH_BYPASS_PATHS", "")
+        self.allow_auth_bypass = _as_bool(
+            os.getenv("LLM_PROXY_ALLOW_AUTH_BYPASS", "false"),
+            default=False,
+        )
         self.auth_bypass_paths = {
             path.strip()
             for path in raw_bypass.split(",")
@@ -63,7 +67,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
         is_api_path = path.startswith("/api/")
-        is_bypassed = path in self.auth_bypass_paths
+        is_bypassed = self.allow_auth_bypass and path in self.auth_bypass_paths
 
         if is_api_path:
             content_length = request.headers.get("content-length", "").strip()

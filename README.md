@@ -9,6 +9,13 @@
 - [UI Redesign v1](docs/UI_REDESIGN_V1.md)
 - [Google Calendar Read-Only Setup](docs/GOOGLE_CALENDAR_READONLY_SETUP.md)
 - [Security Roadmap](docs/SECURITY_ROADMAP.md)
+- [Telegram Agent Bridge](docs/TELEGRAM_AGENT_BRIDGE.md)
+- [NotebookLM Manual Pipeline](docs/NOTEBOOKLM_MANUAL_PIPELINE.md)
+- [Team Parallel Workflow](docs/TEAM_PARALLEL_WORKFLOW.md)
+- [Work Lock Board](docs/WORK_LOCK_BOARD.md)
+- [Protocol](docs/PROTOCOL.md)
+- [Action Plan](docs/ACTION_PLAN.md)
+- [Memory Archive](docs/MEMORY.md)
 
 ## Stack
 - Next.js (App Router)
@@ -65,6 +72,17 @@
   - `ace` 일정 질의 시 Google Calendar read-only context 자동 주입
   - 이메일/URL/전화번호 마스킹 옵션 지원 (`GOOGLE_CALENDAR_MASK_SENSITIVE=true`)
   - OAuth test-user and refresh-token flow documented in `docs/GOOGLE_CALENDAR_READONLY_SETUP.md`
+- Agent external-channel expansion added:
+  - Telegram bridge for per-agent bots (Stage 1/2)
+  - command scope split by agent (`read`, `summary`, `trend`) + per-agent `chat_id` allowlist
+  - background long-poller in `llm-proxy` startup (toggle by env)
+  - health/poll/send admin endpoints: `/api/telegram/*`
+- Clio NotebookLM pipeline added (Stage 3, manual approval):
+  - `POST /api/notebooklm/stage`
+  - `POST /api/notebooklm/stage-from-vault`
+  - `GET /api/notebooklm/pending`
+  - `POST /api/notebooklm/approve`
+  - queue lifecycle: `pending -> approved_local/uploaded/failed/rejected`
 
 ## Runtime Entry Points (Local)
 - Frontend: `http://localhost:3000`

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import os
+import re
+from dataclasses import dataclass
+from urllib.parse import urlparse
 
 import httpx
 
@@ -14,6 +17,13 @@ from app.utils.calendar_reader import (
 )
 
 DEFAULT_LOCAL_WEBHOOK = "http://n8n:5678/webhook/hermes-trend"
+DEFAULT_WEB_SEARCH_TARGETS = "dolphin,ace"
+DEFAULT_ALLOWED_SOURCE_DOMAINS = (
+    "openai.com,anthropic.com,deepmind.google,huggingface.co,"
+    "tldr.tech,dev.to,lobste.rs,reuters.com,bloomberg.com,nytimes.com,bbc.com,"
+    "kdi.re.kr,sap.com,toss.tech,tech.kakao.com,d2.naver.com,yozm.wishket.com,"
+    "techblog.woowahan.com,tech.inflab.com,go.kr"
+)
 
 CALENDAR_QUERY_KEYWORDS = (
     "calendar",
@@ -43,6 +53,33 @@ SEARCH_QUERY_KEYWORDS = (
     "news",
 )
 
+PROMPT_INJECTION_PATTERNS = (
+    "ignore previous instruction",
+    "ignore all previous instructions",
+    "disregard previous instruction",
+    "system prompt",
+    "developer prompt",
+    "developer message",
+    "<system>",
+    "</system>",
+    "tool call",
+    "you are chatgpt",
+    "act as",
+    "execute command",
+    "sudo ",
+)
+
+URL_PATTERN = re.compile(r"https?://[^\s)>\]\"']+", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class SourceTrustAssessment:
+    total_urls: int
+    trusted_urls: int
+    unique_domains: tuple[str, ...]
+    trusted_domains: tuple[str, ...]
+    score: int
+
 
 def looks_like_calendar_query(message: str) -> bool:
     text = (message or "").strip()
@@ -66,15 +103,91 @@ def resolve_n8n_webhook_url() -> str:
     return webhook_url_internal or webhook_url_public or DEFAULT_LOCAL_WEBHOOK
 
 
-async def fetch_n8n_search(query: str, tavily_api_key: str) -> tuple[str, str]:
+def web_search_enabled_for_agent(agent_id: str) -> bool:
+    raw = os.getenv("AGENT_WEB_SEARCH_TARGETS", DEFAULT_WEB_SEARCH_TARGETS)
+    allowed = {item.strip().lower() for item in raw.split(",") if item.strip()}
+    return agent_id.strip().lower() in allowed
+
+
+def resolve_allowed_source_domains() -> tuple[str, ...]:
+    raw = os.getenv("WEB_SEARCH_ALLOWED_DOMAINS", DEFAULT_ALLOWED_SOURCE_DOMAINS)
+    items = [item.strip().lower().lstrip(".") for item in raw.split(",") if item.strip()]
+    return tuple(dict.fromkeys(items))
+
+
+def _extract_urls(text: str) -> list[str]:
+    if not text:
+        return []
+    return [match.group(0).rstrip(".,)") for match in URL_PATTERN.finditer(text)]
+
+
+def _normalize_domain(url: str) -> str:
+    try:
+        host = (urlparse(url).hostname or "").lower().strip().lstrip(".")
+    except Exception:
+        return ""
+    return host
+
+
+def _domain_allowed(domain: str, allowed_domains: tuple[str, ...]) -> bool:
+    if not domain:
+        return False
+    for allowed in allowed_domains:
+        if domain == allowed or domain.endswith(f".{allowed}"):
+            return True
+    return False
+
+
+def assess_source_trust(text: str) -> SourceTrustAssessment:
+    urls = _extract_urls(text)
+    domains = [_normalize_domain(url) for url in urls]
+    unique_domains = tuple(sorted({domain for domain in domains if domain}))
+    allowed_domains = resolve_allowed_source_domains()
+    trusted_domains = tuple(
+        sorted({domain for domain in unique_domains if _domain_allowed(domain, allowed_domains)})
+    )
+    trusted_urls = sum(
+        1 for domain in domains if domain and _domain_allowed(domain, allowed_domains)
+    )
+    # 0~100 heuristic score
+    score = min(100, (trusted_urls * 30) + (len(trusted_domains) * 10))
+    return SourceTrustAssessment(
+        total_urls=len(urls),
+        trusted_urls=trusted_urls,
+        unique_domains=unique_domains,
+        trusted_domains=trusted_domains,
+        score=score,
+    )
+
+
+def sanitize_external_search_text(text: str) -> tuple[str, int]:
+    lines = (text or "").splitlines()
+    kept: list[str] = []
+    removed = 0
+    for line in lines:
+        lowered = line.lower()
+        if any(pattern in lowered for pattern in PROMPT_INJECTION_PATTERNS):
+            removed += 1
+            continue
+        kept.append(line)
+    sanitized = "\n".join(kept).strip()
+    return sanitized, removed
+
+
+async def fetch_n8n_search(
+    query: str,
+    tavily_api_key: str,
+    agent_id: str = "dolphin",
+    source: str = "nanoclaw",
+) -> tuple[str, str]:
     webhook_url = resolve_n8n_webhook_url()
     async with httpx.AsyncClient(timeout=60.0) as client:
         resp = await client.post(
             webhook_url,
             json={
                 "message": query,
-                "source": "nanoclaw",
-                "agentId": "dolphin",
+                "source": source,
+                "agentId": (agent_id or "dolphin"),
                 "tavily_api_key": tavily_api_key,
             },
         )

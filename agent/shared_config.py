@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Final
 
-AGENT_ALIASES: Final[dict[str, str]] = {
+CATALOG_PATH: Final[Path] = Path(__file__).resolve().parent / "personas" / "agent_catalog.json"
+
+DEFAULT_AGENT_ALIASES: Final[dict[str, str]] = {
     "ace": "ace",
     "에이스": "ace",
     "morpheus": "ace",
@@ -15,8 +19,9 @@ AGENT_ALIASES: Final[dict[str, str]] = {
     "헤르메스": "dolphin",
 }
 
-AGENTS: Final[dict[str, dict[str, object]]] = {
+DEFAULT_AGENTS: Final[dict[str, dict[str, object]]] = {
     "ace": {
+        "name": "Morpheus",
         "provider": "anthropic",
         "model": "claude-opus-4-6",
         "persona_file": "ace.md",
@@ -39,6 +44,24 @@ AGENTS: Final[dict[str, dict[str, object]]] = {
     },
 }
 
+
+def _load_catalog() -> tuple[dict[str, str], dict[str, dict[str, object]]]:
+    if not CATALOG_PATH.exists():
+        return dict(DEFAULT_AGENT_ALIASES), dict(DEFAULT_AGENTS)
+    try:
+        payload = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
+        aliases = payload.get("aliases")
+        agents = payload.get("agents")
+        if not isinstance(aliases, dict) or not isinstance(agents, dict):
+            return dict(DEFAULT_AGENT_ALIASES), dict(DEFAULT_AGENTS)
+        return dict(aliases), dict(agents)
+    except Exception:
+        return dict(DEFAULT_AGENT_ALIASES), dict(DEFAULT_AGENTS)
+
+
+AGENT_ALIASES_DATA, AGENTS_DATA = _load_catalog()
+AGENT_ALIASES: Final[dict[str, str]] = AGENT_ALIASES_DATA
+AGENTS: Final[dict[str, dict[str, object]]] = AGENTS_DATA
 VALID_AGENT_IDS: Final[set[str]] = set(AGENTS.keys())
 
 

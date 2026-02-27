@@ -73,12 +73,29 @@
 
 경로: `shared_data/agent_comms/{inbox,outbox,archive,deadletter}`
 
-## 4.4 에이전트 메모리 분리
+### 4.4 에이전트 메모리 분리
 - Morpheus: `shared_data/obsidian_vault/MEMORY.md`
 - Clio: `shared_data/obsidian_vault/MEMORY_CLIO.md`
 - Hermes: `shared_data/obsidian_vault/MEMORY_HERMES.md`
 
 목적: 최소권한 컨텍스트 공유와 역할별 응답 품질 안정화.
+
+### 4.5 텔레그램 브리지(외부 채널)
+- llm-proxy가 에이전트별 봇 토큰/allowlist를 기준으로 폴링 처리
+- 명령 스코프를 에이전트별로 분리해 최소권한 운영
+- 운영 엔드포인트:
+  - `GET /api/telegram/health`
+  - `POST /api/telegram/poll-once`
+  - `POST /api/telegram/send`
+
+### 4.6 NotebookLM 수동 승인 파이프라인(Clio)
+- Clio(owl)만 stage 가능
+- 큐 수명주기: `pending -> approved_local/uploaded/failed/rejected`
+- API:
+  - `POST /api/notebooklm/stage`
+  - `POST /api/notebooklm/stage-from-vault`
+  - `GET /api/notebooklm/pending`
+  - `POST /api/notebooklm/approve`
 
 ## 5. 운영 원칙
 
@@ -86,6 +103,8 @@
 - 사용자 입력은 항상 서버 라우터를 경유
 - 런타임 데이터(shared_data)와 코드 저장소를 분리
 - 페르소나 변경은 코드 분기보다 프로필 교체 방식으로 처리
+- 병렬 개발 시 `docs/WORK_LOCK_BOARD.md`로 파일 락 선언 후 작업 시작
+- 구현/리팩터링은 `docs/PROTOCOL.md`의 SPARC 루프를 기본 절차로 사용
 
 ## 6. 공개 저장소 운영 방침
 퍼블릭 저장소에는 실행 코드/템플릿만 포함하고,
@@ -96,3 +115,10 @@
 - SQLite DB 및 캐시/빌드 산출물
 
 자세한 보안 통제 항목은 `docs/SECURITY_MODEL.md`를 참고하세요.
+
+## 7. 운영 문서 맵
+- 프로토콜: `docs/PROTOCOL.md`
+- 액션 플랜: `docs/ACTION_PLAN.md`
+- 러닝 아카이브: `docs/MEMORY.md`
+- 병렬 운영 규칙: `docs/TEAM_PARALLEL_WORKFLOW.md`
+- 파일 락 보드: `docs/WORK_LOCK_BOARD.md`

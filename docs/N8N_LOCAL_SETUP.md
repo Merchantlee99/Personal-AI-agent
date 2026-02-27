@@ -1,7 +1,7 @@
-# n8n Local Setup (Hermes Web Search Flow)
+# n8n Local Setup (Agent Web Search Flow)
 
 ## 목적
-- 로컬 OrbStack/Docker 환경에서 Hermes 웹검색 플로우를 n8n webhook으로 운영.
+- 로컬 OrbStack/Docker 환경에서 에이전트 웹검색 플로우(Hermes/Morpheus)를 n8n webhook으로 운영.
 - 요청 경로를 `llm-proxy -> n8n -> llm-proxy 응답`으로 고정.
 
 ## 사전 준비
@@ -16,14 +16,21 @@ N8N_WEBHOOK_URL_INTERNAL=http://n8n:5678/webhook/hermes-trend
 N8N_WEBHOOK_URL_HOST=http://localhost:5678/webhook/hermes-trend
 N8N_WEBHOOK_URL=http://localhost:5678/webhook/hermes-trend
 TAVILY_API_KEY=tvly-...
+AGENT_WEB_SEARCH_TARGETS=dolphin,ace
 LLM_PROXY_INTERNAL_TOKEN=...
+N8N_WEBHOOK_SIGNING_SECRET=replace-with-random
 ```
 
 주의:
 - 현재 구성은 `llm-proxy`가 `tavily_api_key`를 n8n webhook body에 포함해 전달합니다.
+- `AGENT_WEB_SEARCH_TARGETS`로 검색 가능 에이전트를 제한할 수 있습니다. (권장: `dolphin,ace`)
+- `llm-proxy /api/hermes/daily-briefing`는 HMAC(timestamp+payload) 검증을 수행합니다.
 - n8n의 Code 노드에서 `$env` 접근이 차단된 경우에도 동작하도록 설계되었습니다.
 - 보안 미들웨어가 적용된 환경에서는 n8n -> llm-proxy HTTP Request 노드에
   `x-internal-token: {{$env.LLM_PROXY_INTERNAL_TOKEN}}` 헤더를 추가해야 합니다.
+- 서명 헤더도 함께 전달해야 합니다.
+  - `x-webhook-timestamp: <unix_sec>`
+  - `x-webhook-signature: sha256=<hmac_hex>`
 
 ## 방법 A: 템플릿 Import (권장)
 1. n8n 접속: `http://localhost:5678`
@@ -35,16 +42,16 @@ LLM_PROXY_INTERNAL_TOKEN=...
 
 이 템플릿은 아래 노드로 구성됩니다.
 - `Webhook (POST /webhook/hermes-trend)`
-- `Normalize Input (query/source/agentId/tavily_api_key 정규화)`
+- `Normalize Input (query/source/agentId/tavily_api_key 정규화, 기본 agentId=dolphin)`
 - `Search Tavily (Code node / fetch)`
 - `Build Final Text (응답 가공, final_text/filename 반환)`
 
 스케줄 기반 자동 브리핑 템플릿도 같이 제공됩니다.
 - `/Users/isanginn/Workspace/Agent_Workspace/n8n/workflows/hermes-daily-briefing-schedule.template.json`
-- 구성: `Cron(매일 09:00) -> RSS Read -> 24h Digest -> llm-proxy /api/hermes/daily-briefing`
+- 구성: `Cron(매일 09:00) -> RSS Read -> 24h Digest -> Sign Payload(HMAC) -> llm-proxy /api/hermes/daily-briefing`
 - 목적: 사용자 입력 없이 Hermes 자동 브리핑 큐 적재
-- 현재는 호환을 위해 `/api/hermes/daily-briefing`가 임시 bypass 경로로 열려 있을 수 있습니다.
-  운영 보안 강화 시 bypass 제거 후 위 헤더 방식으로 고정하세요.
+- 현재 `/api/hermes/daily-briefing`는 내부 토큰 + 웹훅 서명(HMAC) 검증을 사용합니다.
+- n8n HTTP Request 노드에서 `x-internal-token`, `x-webhook-timestamp`, `x-webhook-signature`를 항상 주입하세요.
 
 ### Hermes Daily Briefing RSS 소스 설계 (현재 반영)
 - KR IT/기술 블로그:
@@ -131,6 +138,13 @@ curl -X POST http://localhost:8000/api/search \
     1. `.env.local`의 `LLM_PROXY_INTERNAL_TOKEN` 확인
     2. n8n HTTP Request 노드 헤더 추가 (`x-internal-token`)
     3. `docker compose up -d --force-recreate llm-proxy n8n`
+
+- `401 Webhook auth failed`
+  - 원인: `x-webhook-signature`/`x-webhook-timestamp` 누락, 서명 불일치, 타임스탬프 허용 범위 초과
+  - 조치:
+    1. `.env.local`에 `N8N_WEBHOOK_SIGNING_SECRET` 동일 값 설정 (llm-proxy, n8n 공통)
+    2. n8n 템플릿의 `Sign Webhook Payload` 노드 활성화 확인
+    3. 시스템 시간 동기화 확인 (기본 허용 오차 300초)
 
 - Tavily 4xx/5xx
   - 원인: `TAVILY_API_KEY` 누락/만료 또는 할당량 초과

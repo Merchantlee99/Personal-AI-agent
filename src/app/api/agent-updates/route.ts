@@ -31,9 +31,9 @@ const USER_INBOX_DIR = path.resolve(process.cwd(), "shared_data", "agent_comms",
 const ARCHIVE_ROOT_DIR = path.resolve(process.cwd(), "shared_data", "agent_comms", "archive", "user");
 const DEADLETTER_DIR = path.resolve(process.cwd(), "shared_data", "agent_comms", "deadletter");
 
-function normalizeAgentId(raw: string | undefined): CanonicalAgentId {
+function normalizeAgentId(raw: string | undefined): CanonicalAgentId | null {
   const normalized = normalizeAgentIdInput(raw ?? "");
-  return normalized ?? "dolphin";
+  return normalized;
 }
 
 function uniquePath(targetPath: string): Promise<string> {
@@ -66,6 +66,9 @@ async function parseNotification(filePath: string): Promise<AgentUpdate | null> 
     const raw = await fs.readFile(filePath, "utf-8");
     const parsed = JSON.parse(raw) as QueuedNotification;
     const agentId = normalizeAgentId(parsed.agent_id);
+    if (!agentId) {
+      return null;
+    }
     const agentName = String(parsed.agent_name || (agentId === "dolphin" ? "Hermes" : agentId));
     const content = String(parsed.content || "").trim();
     if (!content) {

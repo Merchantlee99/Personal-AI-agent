@@ -1,0 +1,11 @@
+# Default owner
+* @Merchantlee99
+
+# Optional split ownership examples (uncomment when team is assigned)
+# /src/components/ @ui-owner
+# /src/app/api/ @feature-owner
+# /proxy/ @feature-owner @security-owner
+# /agent/ @feature-owner
+# /n8n/workflows/ @workflow-owner
+# /docker-compose.yml @security-owner
+

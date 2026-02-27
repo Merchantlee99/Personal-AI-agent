@@ -55,7 +55,7 @@ services:
     volumes:
       - ./agent/personas:/app/personas:ro
       - ./shared_data/obsidian_vault:/app/vault:rw
-      - ./shared_data/agent_comms:/app/shared/agent_comms:rw
+      - ./shared_data/agent_comms:/app/shared_data/agent_comms:rw
     expose:
       - "8000"
     restart: unless-stopped

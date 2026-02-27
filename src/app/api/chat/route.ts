@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizeAgentIdInput } from "@/lib/agent-config";
+import { buildProxyHeaders, fetchWithTimeout, getProxyBaseUrl } from "@/lib/server/proxy-client";
 
-const LLM_PROXY_URL = process.env.LLM_PROXY_URL || "http://localhost:8000";
-const LLM_PROXY_INTERNAL_TOKEN = process.env.LLM_PROXY_INTERNAL_TOKEN?.trim() || "";
-const LLM_PROXY_TIMEOUT_MS = Number(process.env.LLM_PROXY_TIMEOUT_MS || "45000");
+const LLM_PROXY_URL = getProxyBaseUrl();
+const ACE_SHARED_USER_ID = process.env.ACE_SHARED_USER_ID?.trim() || "owner";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -18,28 +18,6 @@ interface ChatRequestBody {
 
 function normalizeAgentId(agentId: string): "ace" | "owl" | "dolphin" | null {
   return normalizeAgentIdInput(agentId);
-}
-
-function buildProxyHeaders() {
-  return {
-    "Content-Type": "application/json",
-    ...(LLM_PROXY_INTERNAL_TOKEN
-      ? { "x-internal-token": LLM_PROXY_INTERNAL_TOKEN }
-      : {}),
-  };
-}
-
-async function fetchWithTimeout(input: string, init: RequestInit = {}) {
-  const controller = new AbortController();
-  const timeout = Number.isFinite(LLM_PROXY_TIMEOUT_MS) && LLM_PROXY_TIMEOUT_MS > 0
-    ? LLM_PROXY_TIMEOUT_MS
-    : 45000;
-  const timer = setTimeout(() => controller.abort(), timeout);
-  try {
-    return await fetch(input, { ...init, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 export async function POST(request: NextRequest) {
@@ -62,15 +40,19 @@ export async function POST(request: NextRequest) {
     }
 
     // llm-proxy의 /api/agent 엔드포인트로 전달
+    const useSharedServerHistory = canonicalAgentId === "ace";
     const proxyResponse = await fetchWithTimeout(`${LLM_PROXY_URL}/api/agent`, {
       method: "POST",
       headers: buildProxyHeaders(),
       body: JSON.stringify({
         agent_id: canonicalAgentId,
         message,
-        history: history || [],
+        history: useSharedServerHistory ? [] : history || [],
+        ...(useSharedServerHistory
+          ? { user_id: ACE_SHARED_USER_ID, channel: "web" }
+          : {}),
       }),
-    });
+    }, 45000);
 
     if (!proxyResponse.ok) {
       const errorData = await proxyResponse.json().catch(() => ({}));
@@ -103,7 +85,7 @@ export async function GET() {
     const res = await fetchWithTimeout(`${LLM_PROXY_URL}/api/agents`, {
       headers: buildProxyHeaders(),
       cache: "no-store",
-    });
+    }, 45000);
     const data = await res.json();
     return NextResponse.json(data);
   } catch (error) {

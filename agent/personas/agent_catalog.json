@@ -1,0 +1,40 @@
+{
+  "aliases": {
+    "ace": "ace",
+    "에이스": "ace",
+    "morpheus": "ace",
+    "모르피어스": "ace",
+    "owl": "owl",
+    "clio": "owl",
+    "클리오": "owl",
+    "dolphin": "dolphin",
+    "hermes": "dolphin",
+    "헤르메스": "dolphin"
+  },
+  "agents": {
+    "ace": {
+      "name": "Morpheus",
+      "provider": "anthropic",
+      "model": "claude-opus-4-6",
+      "persona_file": "ace.md",
+      "memory_file": "MEMORY.md",
+      "include_memory": true
+    },
+    "owl": {
+      "name": "Clio",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-5-20250929",
+      "persona_file": "owl.md",
+      "memory_file": "MEMORY_CLIO.md",
+      "include_memory": true
+    },
+    "dolphin": {
+      "name": "Hermes",
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-5-20250929",
+      "persona_file": "dolphin.md",
+      "memory_file": "MEMORY_HERMES.md",
+      "include_memory": true
+    }
+  }
+}

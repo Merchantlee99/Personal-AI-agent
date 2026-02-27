@@ -68,6 +68,19 @@
     },
     {
       "parameters": {
+        "jsCode": "const crypto = require('crypto');\n\nfunction stable(value) {\n  if (Array.isArray(value)) {\n    return `[${value.map(stable).join(',')}]`;\n  }\n  if (value && typeof value === 'object') {\n    const keys = Object.keys(value).sort();\n    return `{${keys.map((k) => `${JSON.stringify(k)}:${stable(value[k])}`).join(',')}}`;\n  }\n  return JSON.stringify(value);\n}\n\nconst payload = {\n  title: 'Hermes Daily Trend Briefing',\n  source: 'n8n_schedule',\n  period_start: $json.period_start,\n  period_end: $json.period_end,\n  translation_required_count: $json.translation_required_count,\n  source_stats: $json.source_stats,\n  digest_text: $json.digest_text,\n  articles: $json.articles,\n};\n\nconst timestamp = Math.floor(Date.now() / 1000).toString();\nconst secret = String($env.N8N_WEBHOOK_SIGNING_SECRET || '').trim();\nlet signature = '';\n\nif (secret) {\n  const canonical = stable(payload);\n  signature = `sha256=${crypto.createHmac('sha256', secret).update(`${timestamp}.${canonical}`).digest('hex')}`;\n}\n\nreturn [{\n  json: {\n    ...$json,\n    _payload: payload,\n    _webhook_timestamp: timestamp,\n    _webhook_signature: signature,\n  },\n}];"
+      },
+      "id": "f0dcc378-cd08-4f2d-9d36-e7d6fd3f43be",
+      "name": "Sign Webhook Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        40,
+        80
+      ]
+    },
+    {
+      "parameters": {
         "method": "POST",
         "url": "http://llm-proxy:8000/api/hermes/daily-briefing",
         "sendHeaders": true,
@@ -76,6 +89,14 @@
             {
               "name": "x-internal-token",
               "value": "={{$env.LLM_PROXY_INTERNAL_TOKEN}}"
+            },
+            {
+              "name": "x-webhook-timestamp",
+              "value": "={{$json._webhook_timestamp}}"
+            },
+            {
+              "name": "x-webhook-signature",
+              "value": "={{$json._webhook_signature}}"
             }
           ]
         },
@@ -83,14 +104,14 @@
         "options": {
           "timeout": 120000
         },
-        "bodyParametersJson": "={\n  \"title\": \"Hermes Daily Trend Briefing\",\n  \"source\": \"n8n_schedule\",\n  \"period_start\": $json.period_start,\n  \"period_end\": $json.period_end,\n  \"translation_required_count\": $json.translation_required_count,\n  \"source_stats\": $json.source_stats,\n  \"digest_text\": $json.digest_text,\n  \"articles\": $json.articles\n}"
+        "bodyParametersJson": "={{$json._payload}}"
       },
       "id": "98e6e349-9bf2-4f07-afcc-7c4957cb6da9",
       "name": "Send To Hermes Queue",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        40,
+        320,
         80
       ]
     }
@@ -130,6 +151,17 @@
       ]
     },
     "Build 24h Digest": {
+      "main": [
+        [
+          {
+            "node": "Sign Webhook Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sign Webhook Payload": {
       "main": [
         [
           {
