@@ -14,6 +14,7 @@
 - [x] Add branch-protection automation script + setup guide
 - [ ] Apply branch protection rules in GitHub repository settings
 - [x] Add thread handoff prompt pack (`THREAD_HANDOFF_PROMPTS.md`)
+- [x] Add thread finish + release merge automation scripts
 
 ### B. Development Protocolization
 - [x] Add always-on repo instructions (`AGENTS.md`)
@@ -36,3 +37,4 @@
 - 2026-02-27: governance docs + lock board + PR template added.
 - 2026-02-27: branch-protection script and setup guide added (`scripts/security/apply-branch-protection.sh`, `docs/BRANCH_PROTECTION_SETUP.md`).
 - 2026-02-27: active lock allocation + thread handoff prompt pack added for 4-thread parallel run.
+- 2026-02-27: automation scripts added (`scripts/threads/finish-thread.sh`, `scripts/release-captain/merge-in-order.sh`).

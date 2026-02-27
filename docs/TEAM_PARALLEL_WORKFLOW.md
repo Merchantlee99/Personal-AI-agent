@@ -63,3 +63,25 @@
 3. 오후 EOD 통합: QA 체크 후 머지 후보 선정
 4. 총책 최종 승인 후 main 반영
 
+## 자동화 명령(권장)
+각 작업 스레드 마감:
+
+```bash
+cd /Users/isanginn/Workspace/Agent_Workspace
+npm run thread:finish -- "feat(scope): short summary"
+```
+
+총책 순차 머지:
+
+```bash
+cd /Users/isanginn/Workspace/Agent_Workspace
+npm run release:merge-order -- \
+  codex/proxy-security-xxx \
+  codex/api-contract-xxx \
+  codex/n8n-workflow-xxx \
+  codex/ui-polish-xxx
+```
+
+주의:
+- 머지 스크립트는 순서 고정이며 브랜치 4개를 명시적으로 받아서 오작동을 줄입니다.
+- 충돌 발생 시 즉시 중단되며, 총책이 수동 조정 후 재실행해야 합니다.

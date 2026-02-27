@@ -123,3 +123,5 @@
 - 시작 전 `/docs/WORK_LOCK_BOARD.md` 상태 확인
 - 완료 후 `REVIEW` 전환 + PR 링크 기재
 - 총책 승인 게이트: `CI / lint`, `Public Repo Guard / guard`, 범위 외 파일 변경 사유
+- 작업 마감 자동화:
+  - `npm run thread:finish -- "feat(scope): summary"`

@@ -143,6 +143,23 @@ This rotates:
 
 and recreates `llm-proxy`, `nanoclaw-agent`, `n8n`.
 
+## Parallel Dev Automation
+Thread finisher (lint + guard + commit + push on current branch):
+
+```bash
+npm run thread:finish -- "feat(scope): short summary"
+```
+
+Release captain merge (fixed order: proxy -> api -> workflow -> ui):
+
+```bash
+npm run release:merge-order -- \
+  codex/proxy-security-xxx \
+  codex/api-contract-xxx \
+  codex/n8n-workflow-xxx \
+  codex/ui-polish-xxx
+```
+
 ## Safe Public Push Guard
 Before pushing to a public GitHub repository, enable the pre-push guard:
 

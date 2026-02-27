@@ -12,7 +12,9 @@
     "git:hooks": "git config core.hooksPath .githooks",
     "security:rotate-internal": "bash scripts/security/rotate-internal-secrets.sh",
     "n8n:test-search": "bash scripts/n8n/test-local-web-search.sh",
-    "n8n:test-briefing": "bash scripts/n8n/test-hermes-daily-briefing.sh"
+    "n8n:test-briefing": "bash scripts/n8n/test-hermes-daily-briefing.sh",
+    "thread:finish": "bash scripts/threads/finish-thread.sh",
+    "release:merge-order": "bash scripts/release-captain/merge-in-order.sh"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.1.0",
