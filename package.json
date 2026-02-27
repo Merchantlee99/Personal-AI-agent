@@ -14,7 +14,12 @@
     "n8n:test-search": "bash scripts/n8n/test-local-web-search.sh",
     "n8n:test-briefing": "bash scripts/n8n/test-hermes-daily-briefing.sh",
     "thread:finish": "bash scripts/threads/finish-thread.sh",
-    "release:merge-order": "bash scripts/release-captain/merge-in-order.sh"
+    "release:merge-order": "bash scripts/release-captain/merge-in-order.sh",
+    "watch:codex:once": "bash scripts/release-captain/watch-codex-pipeline.sh --once",
+    "watch:codex:start": "bash scripts/release-captain/watch-daemon.sh start",
+    "watch:codex:stop": "bash scripts/release-captain/watch-daemon.sh stop",
+    "watch:codex:status": "bash scripts/release-captain/watch-daemon.sh status",
+    "watch:codex:logs": "bash scripts/release-captain/watch-daemon.sh logs"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.1.0",

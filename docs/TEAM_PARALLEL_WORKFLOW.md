@@ -97,3 +97,28 @@ npm run release:merge-order -- \
 전제 조건:
 - 브랜치 보호가 `PROTECTION_PROFILE=auto`로 적용되어 있어야 진짜 완전 자동이 가능합니다.
 - `strict` 프로필(리뷰 필수)에서는 자동 머지가 리뷰 정책에 의해 보류될 수 있습니다.
+
+## 상시 감시(Release Captain Watch)
+자동 머지 상태를 상시 감시하려면 로컬 데몬을 실행합니다.
+
+```bash
+cd /Users/isanginn/Workspace/Agent_Workspace
+
+# 백그라운드 감시 시작 (기본 60초 간격)
+npm run watch:codex:start
+
+# 상태 확인
+npm run watch:codex:status
+
+# 로그 확인
+npm run watch:codex:logs
+
+# 감시 중지
+npm run watch:codex:stop
+```
+
+동작:
+- 열린 `codex/*` PR 큐와 체크 상태를 주기적으로 조회
+- `main`의 최신 `merge: codex/*` 커밋을 함께 추적
+- 변경이 감지되면 `shared_data/logs/release-captain-watch.log`에 이벤트 기록
+- 필요 시 `--notify` 옵션으로 macOS 알림 사용 가능
