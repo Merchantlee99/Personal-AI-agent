@@ -16,6 +16,10 @@
   - `CI / lint`
   - `Public Repo Guard / guard`
 
+## 프로필 선택
+- `strict` (기본): 수동 승인 1회 + CODEOWNERS 리뷰 필요
+- `auto`: 리뷰 요구 없음, 체크 통과 시 자동 머지 워크플로우와 호환
+
 ## 방법 A (권장): 자동 적용 스크립트
 1. GitHub PAT 준비 (repo admin 권한)
 2. 로컬에서 실행:
@@ -37,6 +41,14 @@ bash scripts/security/apply-branch-protection.sh
 REPO_OWNER="your-owner" REPO_NAME="your-repo" TARGET_BRANCH="main" \
 GITHUB_TOKEN="<token>" \
 bash scripts/security/apply-branch-protection.sh
+```
+
+완전 자동 모드로 적용하려면:
+
+```bash
+cd /Users/isanginn/Workspace/Agent_Workspace
+export GITHUB_TOKEN="<github_pat_with_admin_rights>"
+PROTECTION_PROFILE=auto bash scripts/security/apply-branch-protection.sh
 ```
 
 ## 방법 B: 수동 UI 적용

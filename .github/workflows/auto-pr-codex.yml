@@ -1,0 +1,121 @@
+name: Auto PR (codex branches)
+
+on:
+  push:
+    branches:
+      - "codex/**"
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  create-or-update-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create or update PR for codex branch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const branch = context.ref.replace('refs/heads/', '');
+
+            const areaInfo = (() => {
+              const b = branch.toLowerCase();
+              if (b.includes('proxy') || b.includes('security')) {
+                return { area: 'proxy-security', order: 1, color: '5319e7' };
+              }
+              if (b.includes('api')) {
+                return { area: 'api', order: 2, color: '1d76db' };
+              }
+              if (b.includes('workflow') || b.includes('n8n')) {
+                return { area: 'workflow', order: 3, color: '0e8a16' };
+              }
+              if (b.includes('ui')) {
+                return { area: 'ui-ux', order: 4, color: 'fbca04' };
+              }
+              return { area: 'misc', order: 9, color: 'cfd3d7' };
+            })();
+
+            const labels = [
+              `auto/managed`,
+              `area/${areaInfo.area}`,
+              `order/${areaInfo.order}`,
+            ];
+
+            async function ensureLabel(name, color, description) {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name });
+              } catch (e) {
+                if (e.status === 404) {
+                  await github.rest.issues.createLabel({
+                    owner,
+                    repo,
+                    name,
+                    color,
+                    description,
+                  });
+                } else {
+                  throw e;
+                }
+              }
+            }
+
+            await ensureLabel('auto/managed', '5319e7', 'Managed by release-captain automation');
+            await ensureLabel('auto/hold', 'b60205', 'Do not auto-merge');
+            await ensureLabel(`area/${areaInfo.area}`, areaInfo.color, 'Automation area bucket');
+            await ensureLabel(`order/${areaInfo.order}`, areaInfo.color, 'Release order priority');
+
+            const prs = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: 'open',
+              head: `${owner}:${branch}`,
+              base: 'main',
+              per_page: 100,
+            });
+
+            const title = `[${areaInfo.area}] ${branch.replace(/^codex\//, '')}`;
+            const body = [
+              '## Auto-created PR',
+              '',
+              `- branch: \`${branch}\``,
+              `- area: \`${areaInfo.area}\``,
+              `- merge order: \`${areaInfo.order}\``,
+              '',
+              'This PR is managed by `.github/workflows/auto-pr-codex.yml` and release-captain automation.',
+            ].join('\n');
+
+            let prNumber;
+            if (prs.length === 0) {
+              const created = await github.rest.pulls.create({
+                owner,
+                repo,
+                title,
+                head: branch,
+                base: 'main',
+                body,
+                maintainer_can_modify: true,
+              });
+              prNumber = created.data.number;
+              core.info(`created PR #${prNumber}`);
+            } else {
+              prNumber = prs[0].number;
+              core.info(`existing PR #${prNumber}`);
+              await github.rest.pulls.update({
+                owner,
+                repo,
+                pull_number: prNumber,
+                title,
+              });
+            }
+
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number: prNumber,
+              labels,
+            });
+

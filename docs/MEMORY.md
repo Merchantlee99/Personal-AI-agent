@@ -42,3 +42,10 @@
 - Root cause: feedback semantics not encoded as project rule.
 - Fix: encode phrase semantics in protocol/agent instructions.
 - Guardrail: first classify complaint as logic vs UX before coding changes.
+
+### [2026-02-27] Parallel commit+push can race when executed simultaneously
+- Context: automation commit and push triggered in parallel calls.
+- Symptom: push says "Everything up-to-date" while local branch remains ahead.
+- Root cause: push ran before commit hash was created.
+- Fix: run commit first, then push sequentially.
+- Guardrail: avoid parallelizing dependent git operations (`commit -> push` must be ordered).

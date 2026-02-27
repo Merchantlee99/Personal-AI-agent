@@ -85,3 +85,15 @@ npm run release:merge-order -- \
 주의:
 - 머지 스크립트는 순서 고정이며 브랜치 4개를 명시적으로 받아서 오작동을 줄입니다.
 - 충돌 발생 시 즉시 중단되며, 총책이 수동 조정 후 재실행해야 합니다.
+
+## 완전 자동(무지시) 모드
+다음 GitHub Actions가 활성화되어 있으면, 총책 수동 명령 없이도 자동 파이프라인으로 동작합니다.
+
+- `.github/workflows/auto-pr-codex.yml`
+  - `codex/*` 브랜치 push 시 PR 자동 생성/라벨링
+- `.github/workflows/release-captain-auto-merge.yml`
+  - PR/체크 이벤트를 받아 머지 순서(1->2->3->4)로 자동 머지 시도
+
+전제 조건:
+- 브랜치 보호가 `PROTECTION_PROFILE=auto`로 적용되어 있어야 진짜 완전 자동이 가능합니다.
+- `strict` 프로필(리뷰 필수)에서는 자동 머지가 리뷰 정책에 의해 보류될 수 있습니다.

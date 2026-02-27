@@ -160,6 +160,16 @@ npm run release:merge-order -- \
   codex/ui-polish-xxx
 ```
 
+Full auto mode (GitHub Actions):
+- `Auto PR (codex branches)`: creates/updates PRs from `codex/*`
+- `Release Captain Auto Merge`: merges next ready PR in fixed order
+
+To enable true no-touch merge, apply branch protection with:
+
+```bash
+PROTECTION_PROFILE=auto bash scripts/security/apply-branch-protection.sh
+```
+
 ## Safe Public Push Guard
 Before pushing to a public GitHub repository, enable the pre-push guard:
 

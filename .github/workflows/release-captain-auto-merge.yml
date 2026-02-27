@@ -1,0 +1,140 @@
+name: Release Captain Auto Merge
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+      - labeled
+      - unlabeled
+  workflow_run:
+    workflows:
+      - CI
+      - Public Repo Guard
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  merge-in-order:
+    if: >
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Merge next ready codex PR in fixed order
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const prList = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: 'open',
+              base: 'main',
+              per_page: 100,
+            });
+
+            const codexPRs = prList
+              .filter(pr => pr.head.ref.startsWith('codex/'))
+              .filter(pr => !pr.draft)
+              .filter(pr => !(pr.labels || []).some(l => l.name === 'auto/hold'));
+
+            if (codexPRs.length === 0) {
+              core.info('no open codex PRs');
+              return;
+            }
+
+            function orderFor(pr) {
+              const label = (pr.labels || []).find(l => /^order\/\d+$/.test(l.name || ''));
+              if (label) return parseInt(label.name.split('/')[1], 10);
+              const b = pr.head.ref.toLowerCase();
+              if (b.includes('proxy') || b.includes('security')) return 1;
+              if (b.includes('api')) return 2;
+              if (b.includes('workflow') || b.includes('n8n')) return 3;
+              if (b.includes('ui')) return 4;
+              return 9;
+            }
+
+            codexPRs.sort((a, b) => {
+              const oa = orderFor(a);
+              const ob = orderFor(b);
+              if (oa !== ob) return oa - ob;
+              return new Date(a.created_at) - new Date(b.created_at);
+            });
+
+            const candidate = codexPRs[0];
+            core.info(`candidate #${candidate.number} (${candidate.head.ref})`);
+
+            const detail = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: candidate.number,
+            });
+
+            const mergeableState = detail.data.mergeable_state;
+            core.info(`mergeable_state=${mergeableState}`);
+
+            if (mergeableState === 'behind') {
+              core.info('candidate is behind main, requesting update branch');
+              try {
+                await github.rest.pulls.updateBranch({
+                  owner,
+                  repo,
+                  pull_number: candidate.number,
+                });
+              } catch (e) {
+                core.warning(`update-branch failed: ${e.message}`);
+              }
+              return;
+            }
+
+            if (mergeableState !== 'clean' && mergeableState !== 'unstable') {
+              core.info('candidate is not mergeable yet');
+              return;
+            }
+
+            const gql = await github.graphql(
+              `query($owner:String!, $repo:String!, $number:Int!) {
+                repository(owner:$owner, name:$repo) {
+                  pullRequest(number:$number) {
+                    statusCheckRollup { state }
+                    reviewDecision
+                  }
+                }
+              }`,
+              { owner, repo, number: candidate.number }
+            );
+
+            const rollupState = gql.repository.pullRequest.statusCheckRollup?.state || 'PENDING';
+            const reviewDecision = gql.repository.pullRequest.reviewDecision || 'NONE';
+            core.info(`statusCheckRollup=${rollupState}, reviewDecision=${reviewDecision}`);
+
+            if (rollupState !== 'SUCCESS') {
+              core.info('required checks are not successful yet');
+              return;
+            }
+
+            if (reviewDecision === 'CHANGES_REQUESTED' || reviewDecision === 'REVIEW_REQUIRED') {
+              core.info('review policy blocks merge');
+              return;
+            }
+
+            await github.rest.pulls.merge({
+              owner,
+              repo,
+              pull_number: candidate.number,
+              merge_method: 'squash',
+              commit_title: `merge: ${candidate.head.ref}`,
+            });
+
+            core.info(`merged #${candidate.number}`);
+
