@@ -32,6 +32,9 @@ async def web_search(req: SearchRequest):
             req.agentId,
             req.source,
         )
+    except RuntimeError as exc:
+        logger.warning("Search webhook call failed: %s", str(exc))
+        raise HTTPException(status_code=502, detail=str(exc))
     except Exception:
         logger.exception("Search webhook call failed")
         raise HTTPException(status_code=502, detail="Search webhook call failed")

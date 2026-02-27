@@ -39,5 +39,9 @@ pnpm-debug.log*
 *.sqlite
 *.sqlite3
 
+# private runbooks (local only)
+/ops_private/*
+!/ops_private/.gitkeep
+
 # typescript
 *.tsbuildinfo

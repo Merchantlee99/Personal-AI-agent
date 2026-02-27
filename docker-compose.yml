@@ -101,3 +101,5 @@ networks:
 
 volumes:
   n8n_data:
+    external: true
+    name: agent_workspace_n8n_data
