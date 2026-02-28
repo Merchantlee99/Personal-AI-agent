@@ -465,3 +465,35 @@
 .agent-chat-scroll::-webkit-scrollbar-thumb:hover {
   background: rgba(var(--panel-rgb, 99,102,241), 0.5);
 }
+
+.dashboard-theme-shell {
+  --dashboard-agent-main: #4338ca;
+  --dashboard-agent-glow: #6366f1;
+  --dashboard-agent-rgb: 99,102,241;
+  --dashboard-motion-fast: 160ms;
+  --dashboard-motion-base: 320ms;
+  --dashboard-motion-slow: 500ms;
+  --dashboard-ease-standard: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dashboard-slot {
+  position: relative;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-theme-shell *,
+  .dashboard-theme-shell *::before,
+  .dashboard-theme-shell *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .dashboard-theme-shell .agent-glyph-thinking .agent-glyph-shape,
+  .dashboard-theme-shell .agent-board-neutral,
+  .dashboard-theme-shell .agent-board-thinking,
+  .dashboard-theme-shell .agent-board-warning {
+    animation: none !important;
+  }
+}

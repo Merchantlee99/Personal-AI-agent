@@ -45,7 +45,7 @@ async def llm_proxy(req: LLMRequest):
             max_tokens=req.max_tokens,
             temperature=req.temperature,
         )
-        return LLMResponse(provider=req.provider, model=model_name, content=content)
+        return LLMResponse(provider=req.provider, model=model_name, content=content.content)
     except HTTPException:
         raise
     except Exception:

@@ -30,8 +30,8 @@
 ## 락 보드 템플릿 (재사용)
 | Area | Main Files | Owner | Status | Started (KST) | ETA | PR |
 |---|---|---|---|---|---|---|
-| UI | `src/components/chat-dashboard.tsx` | - | FREE | - | - | - |
-| UI | `src/components/chat-dashboard/*.tsx` | - | FREE | - | - | - |
+| UI | `src/components/chat-dashboard.tsx` | codex | REVIEW | 2026-02-28 01:50 | 2026-02-28 02:20 | - |
+| UI | `src/components/chat-dashboard/*.tsx` | codex | REVIEW | 2026-02-28 01:50 | 2026-02-28 02:20 | - |
 | API | `src/app/api/chat/route.ts` | - | FREE | - | - | - |
 | API | `src/app/api/agent-updates/route.ts` | - | FREE | - | - | - |
 | PROXY | `proxy/app/routers/*.py` | - | FREE | - | - | - |
@@ -39,7 +39,7 @@
 | AGENT | `agent/nanoclaw.py` | - | FREE | - | - | - |
 | WORKFLOW | `n8n/workflows/*.json` | - | FREE | - | - | - |
 | INFRA | `docker-compose.yml` | - | FREE | - | - | - |
-| DOCS | `docs/*.md` | - | FREE | - | - | - |
+| DOCS | `docs/*.md` | codex | REVIEW | 2026-02-28 01:50 | 2026-02-28 02:20 | - |
 
 ## 운영 규칙
 1. 작업 시작 전에 해당 파일/영역을 `LOCKED`로 변경.
