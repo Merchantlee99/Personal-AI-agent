@@ -4,6 +4,17 @@ import { type CSSProperties, useCallback, useEffect, useMemo, useReducer, useRef
 
 import { Button } from "@/components/ui/button";
 import {
+  AGENTS,
+  INITIAL_DRAFTS,
+  INITIAL_HISTORIES,
+  INITIAL_RETRY_BY_AGENT,
+  INITIAL_UNREAD,
+  isAgentId,
+  QUICK_PROMPT_BY_AGENT,
+  SEEN_UPDATE_CACHE_LIMIT,
+} from "@/components/chat-dashboard/config";
+import { CenterAgentSignal, getReactionState } from "@/components/chat-dashboard/center-agent-signal";
+import {
   buildBridgeAgentMap,
   resolveTelegramBadge,
   type TelegramBadge,
@@ -13,8 +24,6 @@ import {
   CHAT_PANEL_LAYOUT,
   DASHBOARD_LAYOUT,
   resolveDashboardLayout,
-  type DashboardAgentId,
-  type DashboardAgentTheme,
 } from "@/components/chat-dashboard/design-tokens";
 import { DashboardSlot } from "@/components/chat-dashboard/dashboard-slot";
 import {
@@ -26,101 +35,14 @@ import {
   type ChatPanelAction,
 } from "@/components/chat-dashboard/chat-panel-state";
 import { LeftPanel } from "@/components/chat-dashboard/left-panel";
+import { buildApiHistory, formatTime, normalizeAssistantContent } from "@/components/chat-dashboard/message-utils";
 import { RightPanel } from "@/components/chat-dashboard/right-panel";
+import type { AgentId, AgentUpdate, ChatMessage, ReactionState } from "@/components/chat-dashboard/types";
 import { useTelegramHealth } from "@/components/chat-dashboard/use-telegram-health";
 import { useUsageSummary, type UsageProviderId } from "@/components/chat-dashboard/use-usage-summary";
 import { emitUxMetric } from "@/components/chat-dashboard/ux-metrics";
 import { TELEGRAM_CODES } from "@/lib/telegram-codes";
 import { cn } from "@/lib/utils";
-
-type AgentId = DashboardAgentId;
-type AgentStatus = "online" | "busy" | "idle";
-type ReactionState = "neutral" | "thinking" | "warning";
-
-type Agent = {
-  id: AgentId;
-  name: string;
-  legacyName: string;
-  role: string;
-  model: string;
-  status: AgentStatus;
-  tabooWord: string;
-  reportStyle: string;
-};
-
-type ChatMessage = {
-  id: string;
-  role: "assistant" | "user" | "system";
-  content: string;
-  createdAt: string;
-  origin?: "manual" | "proactive";
-};
-
-type AgentUpdate = {
-  id: string;
-  agentId: AgentId;
-  agentName: string;
-  title: string;
-  content: string;
-  type: string;
-  source: string;
-  createdAt: string;
-  ackKey: string;
-};
-
-const SEEN_UPDATE_CACHE_LIMIT = 4000;
-
-const AGENTS: Agent[] = [
-  {
-    id: "ace",
-    name: "Morpheus",
-    legacyName: "에이스",
-    role: "총괄 조언자",
-    model: "claude-opus-4-6",
-    status: "online",
-    tabooWord: "\"아마\"(근거 없는 추측)",
-    reportStyle: "결론 1줄 → 근거 2줄 → 다음 액션 1줄",
-  },
-  {
-    id: "owl",
-    name: "Clio",
-    legacyName: "지식관리자",
-    role: "지식 체계화",
-    model: "claude-sonnet-4-5-20250929",
-    status: "online",
-    tabooWord: "\"대충\"(비구조화 요약)",
-    reportStyle: "요약 3줄 → 구조화 목록 → 연결 노트 1줄",
-  },
-  {
-    id: "dolphin",
-    name: "Hermes",
-    legacyName: "트렌드트래커",
-    role: "트렌드 조사",
-    model: "claude-sonnet-4-5-20250929",
-    status: "busy",
-    tabooWord: "\"출처 없음\"(검증 없는 인용)",
-    reportStyle: "HOT/INSIGHT/MONITOR + 출처 2개 + 추천 액션",
-  }
-];
-
-const QUICK_PROMPT_BY_AGENT: Record<AgentId, { label: string; value: string }> = {
-  ace: { label: "@morpheus 전략 요약", value: "@ace 현재 상황 기준으로 우선순위 3가지를 요약해줘." },
-  owl: { label: "@clio 문서화", value: "@owl 이 대화 내용을 옵시디언 문서 포맷으로 정리해줘." },
-  dolphin: { label: "@hermes 트렌드", value: "@dolphin 2025 한국 관광 트렌드 핵심 이슈 5개만 정리해줘." }
-};
-
-const PARTICLE_PRESETS = [
-  { angle: 0, delay: 0.0 },
-  { angle: 36, delay: 0.45 },
-  { angle: 72, delay: 0.9 },
-  { angle: 108, delay: 1.35 },
-  { angle: 144, delay: 1.8 },
-  { angle: 180, delay: 2.25 },
-  { angle: 216, delay: 2.7 },
-  { angle: 252, delay: 3.15 },
-  { angle: 288, delay: 3.6 },
-  { angle: 324, delay: 4.05 }
-] as const;
 
 const PROVIDER_PANEL_META = [
   { id: "anthropic", label: "Anthropic", dailyBudgetUsd: 80 },
@@ -132,270 +54,6 @@ const PROVIDER_PANEL_META = [
   dailyBudgetUsd: number;
 }>;
 
-const INITIAL_CREATED_AT = "2026-02-24T00:00:00.000Z";
-
-const INITIAL_HISTORIES: Record<AgentId, ChatMessage[]> = {
-  ace: [
-    {
-      id: "ace-initial",
-      role: "assistant",
-      content: "Morpheus 연결 완료. 전략/우선순위/실행 플랜을 함께 정리하겠습니다.",
-      createdAt: INITIAL_CREATED_AT,
-      origin: "manual"
-    }
-  ],
-  owl: [
-    {
-      id: "owl-initial",
-      role: "assistant",
-      content: "Clio 연결 완료. 노트 구조화와 지식 연결을 도와드릴게요.",
-      createdAt: INITIAL_CREATED_AT,
-      origin: "manual"
-    }
-  ],
-  dolphin: [
-    {
-      id: "dolphin-initial",
-      role: "assistant",
-      content: "Hermes 연결 완료. 최신 트렌드 조사와 정리를 수행합니다.",
-      createdAt: INITIAL_CREATED_AT,
-      origin: "manual"
-    }
-  ]
-};
-
-const INITIAL_UNREAD: Record<AgentId, number> = {
-  ace: 0,
-  owl: 0,
-  dolphin: 0
-};
-
-const INITIAL_DRAFTS: Record<AgentId, string> = {
-  ace: "",
-  owl: "",
-  dolphin: "",
-};
-
-const INITIAL_RETRY_BY_AGENT: Record<AgentId, string | null> = {
-  ace: null,
-  owl: null,
-  dolphin: null,
-};
-
-function isAgentId(value: string): value is AgentId {
-  return AGENTS.some((agent) => agent.id === value);
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("ko-KR", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: "Asia/Seoul"
-  });
-}
-
-function buildApiHistory(history: ChatMessage[]) {
-  return history
-    .filter((item) => item.role === "user" || item.role === "assistant")
-    .map((item) => ({ role: item.role, content: item.content }));
-}
-
-function normalizeAssistantContent(content: string): string {
-  return content
-    .replace(/\*\*(.*?)\*\*/g, "$1")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
-function getReactionState(history: ChatMessage[], pending: boolean): ReactionState {
-  if (pending) {
-    return "thinking";
-  }
-  const latestMessage = [...history].reverse().find((message) => message.role !== "user");
-  if (latestMessage?.role === "system") {
-    return "warning";
-  }
-  return "neutral";
-}
-
-function AgentGlyph({
-  agent,
-  reaction,
-  size = 260,
-  compact = false,
-}: {
-  agent: Agent;
-  reaction: ReactionState;
-  size?: number;
-  compact?: boolean;
-}) {
-  const visualByAgent: Record<AgentId, {
-    rgb: string;
-    fill: string;
-    glow: string;
-    glowSoft: string;
-  }> = {
-    ace: {
-      rgb: "99,102,241",
-      fill: "rgba(99, 102, 241, 0.15)",
-      glow: "#6366F1",
-      glowSoft: "rgba(67, 56, 202, 0.5)",
-    },
-    owl: {
-      rgb: "249,115,22",
-      fill: "rgba(249, 115, 22, 0.15)",
-      glow: "#F97316",
-      glowSoft: "rgba(234, 88, 12, 0.5)",
-    },
-    dolphin: {
-      rgb: "16,185,129",
-      fill: "rgba(16, 185, 129, 0.15)",
-      glow: "#10B981",
-      glowSoft: "rgba(5, 150, 105, 0.5)",
-    }
-  };
-  const visual = visualByAgent[agent.id];
-
-  const reactionClass =
-    reaction === "thinking"
-      ? "agent-glyph-thinking"
-      : reaction === "warning"
-        ? "agent-glyph-warning"
-        : "agent-glyph-neutral";
-
-  return (
-    <div
-      className={cn("agent-glyph", reactionClass, compact && "agent-glyph-compact")}
-      style={
-        {
-          width: size,
-          height: size,
-          "--glyph-size": `${size}px`,
-          "--shape-size": compact ? "44px" : "80px",
-          "--agent-rgb": visual.rgb,
-          "--agent-glow": visual.glow,
-          "--agent-glow-soft": visual.glowSoft,
-        } as CSSProperties
-      }
-    >
-      <span className="agent-glyph-aura" />
-      <span className="agent-glyph-orbit agent-glyph-orbit-outer">
-        <span className="agent-glyph-orbit-ring" />
-      </span>
-      <span className="agent-glyph-orbit agent-glyph-orbit-middle" />
-      <span className="agent-glyph-orbit agent-glyph-orbit-inner" />
-      <span className="agent-glyph-core-ripple agent-glyph-core-ripple-1" />
-      <span className="agent-glyph-core-ripple agent-glyph-core-ripple-2" />
-      <span className="agent-glyph-core-ripple agent-glyph-core-ripple-3" />
-      <span className="agent-glyph-core-flare" />
-      <span className="agent-glyph-particles">
-        {PARTICLE_PRESETS.map((particle, idx) => (
-          <span
-            // eslint-disable-next-line react/no-array-index-key
-            key={`${agent.id}-particle-${idx}`}
-            className="agent-glyph-particle"
-            style={
-              {
-                "--particle-angle": `${particle.angle}deg`,
-                "--particle-delay": `${particle.delay}s`,
-                "--particle-color":
-                  idx % 2 === 0
-                    ? "rgba(255,255,255,0.62)"
-                    : `rgba(${visual.rgb},0.72)`,
-              } as CSSProperties
-            }
-          />
-        ))}
-      </span>
-      <span className="agent-glyph-shape">
-        {agent.id === "ace" ? (
-          <svg viewBox="0 0 100 100" width="80" height="80" aria-hidden="true">
-            <polygon points="50,8 88,27 88,73 50,92 12,73 12,27" stroke="rgba(255,255,255,0.85)" strokeWidth="1.5" fill="none" />
-            <polygon points="50,22 76,35 76,65 50,78 24,65 24,35" stroke="rgba(255,255,255,0.4)" strokeWidth="1" fill="none" />
-            <polygon className="glyph-inner-shape" points="50,35 65,43 65,57 50,65 35,57 35,43" stroke="rgba(255,255,255,0.6)" strokeWidth="1" fill={visual.fill} />
-            <line className="glyph-connection-line" style={{ "--line-delay": "0s" } as CSSProperties} x1="50" y1="8" x2="50" y2="35" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
-            <line className="glyph-connection-line" style={{ "--line-delay": "0.3s" } as CSSProperties} x1="88" y1="27" x2="65" y2="43" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
-            <line className="glyph-connection-line" style={{ "--line-delay": "0.6s" } as CSSProperties} x1="88" y1="73" x2="65" y2="57" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
-            <line className="glyph-connection-line" style={{ "--line-delay": "0.9s" } as CSSProperties} x1="50" y1="92" x2="50" y2="65" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
-            <line className="glyph-connection-line" style={{ "--line-delay": "1.2s" } as CSSProperties} x1="12" y1="73" x2="35" y2="57" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
-            <line className="glyph-connection-line" style={{ "--line-delay": "1.5s" } as CSSProperties} x1="12" y1="27" x2="35" y2="43" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
-            <polygon className="glyph-edge-flow" points="50,8 88,27 88,73 50,92 12,73 12,27" stroke={visual.glow} strokeWidth="2" fill="none" />
-          </svg>
-        ) : null}
-        {agent.id === "owl" ? (
-          <svg viewBox="0 0 100 100" width="80" height="80" aria-hidden="true">
-            <polygon points="50,5 95,50 50,95 5,50" stroke="rgba(255,255,255,0.85)" strokeWidth="1.5" fill="none" />
-            <polygon points="50,20 80,50 50,80 20,50" stroke="rgba(255,255,255,0.4)" strokeWidth="1" fill="none" />
-            <polygon className="glyph-inner-shape" points="50,33 67,50 50,67 33,50" stroke="rgba(255,255,255,0.6)" strokeWidth="1" fill={visual.fill} />
-            <line className="glyph-connection-line" style={{ "--line-delay": "0s" } as CSSProperties} x1="50" y1="5" x2="50" y2="33" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
-            <line className="glyph-connection-line" style={{ "--line-delay": "0.5s" } as CSSProperties} x1="95" y1="50" x2="67" y2="50" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
-            <line className="glyph-connection-line" style={{ "--line-delay": "1s" } as CSSProperties} x1="50" y1="95" x2="50" y2="67" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
-            <line className="glyph-connection-line" style={{ "--line-delay": "1.5s" } as CSSProperties} x1="5" y1="50" x2="33" y2="50" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
-            <polygon className="glyph-edge-flow" points="50,5 95,50 50,95 5,50" stroke={visual.glow} strokeWidth="2" fill="none" />
-          </svg>
-        ) : null}
-        {agent.id === "dolphin" ? (
-          <svg viewBox="0 0 100 100" width="80" height="80" aria-hidden="true">
-            <polygon points="50,10 88,70 12,70" stroke="rgba(255,255,255,0.85)" strokeWidth="1.5" fill="none" />
-            <polygon points="50,24 76,63 24,63" stroke="rgba(255,255,255,0.4)" strokeWidth="1" fill="none" />
-            <polygon className="glyph-inner-shape" points="50,36 66,57 34,57" stroke="rgba(255,255,255,0.6)" strokeWidth="1" fill={visual.fill} />
-            <line className="glyph-connection-line" style={{ "--line-delay": "0s" } as CSSProperties} x1="50" y1="10" x2="50" y2="36" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
-            <line className="glyph-connection-line" style={{ "--line-delay": "0.4s" } as CSSProperties} x1="88" y1="70" x2="66" y2="57" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
-            <line className="glyph-connection-line" style={{ "--line-delay": "0.8s" } as CSSProperties} x1="12" y1="70" x2="34" y2="57" stroke="rgba(255,255,255,0.1)" strokeWidth="0.5" />
-            <line className="glyph-connection-line" style={{ "--line-delay": "1.2s" } as CSSProperties} x1="50" y1="50" x2="50" y2="36" stroke="rgba(255,255,255,0.08)" strokeWidth="0.5" />
-            <line className="glyph-connection-line" style={{ "--line-delay": "1.6s" } as CSSProperties} x1="50" y1="50" x2="66" y2="57" stroke="rgba(255,255,255,0.08)" strokeWidth="0.5" />
-            <line className="glyph-connection-line" style={{ "--line-delay": "2s" } as CSSProperties} x1="50" y1="50" x2="34" y2="57" stroke="rgba(255,255,255,0.08)" strokeWidth="0.5" />
-            <polygon className="glyph-edge-flow" points="50,10 88,70 12,70" stroke={visual.glow} strokeWidth="2" fill="none" />
-          </svg>
-        ) : null}
-      </span>
-      <span className="agent-glyph-core-glow" />
-      <span className="agent-glyph-core-dot" />
-    </div>
-  );
-}
-
-function getCenterStatus(reaction: ReactionState): string {
-  if (reaction === "thinking") {
-    return "THINKING";
-  }
-  if (reaction === "warning") {
-    return "WARNING";
-  }
-  return "ONLINE";
-}
-
-function CenterAgentSignal({
-  agent,
-  reaction,
-  theme,
-}: {
-  agent: Agent;
-  reaction: ReactionState;
-  theme: DashboardAgentTheme;
-}) {
-  const accent = theme.glow;
-  const status = getCenterStatus(reaction);
-
-  return (
-    <div className="mx-auto flex w-full max-w-[760px] items-center justify-center">
-      <div className="flex min-w-[320px] flex-col items-center gap-4 text-center">
-        <div
-          className="rounded-full bg-white/[0.06] p-6 transition duration-200"
-          style={{
-            boxShadow: `0 0 42px -14px ${accent}`
-          }}
-        >
-          <AgentGlyph agent={agent} reaction={reaction} size={260} />
-        </div>
-        <p className="text-sm font-semibold uppercase tracking-[0.24em] text-stone-100">
-          {agent.name.toUpperCase()} - {status}
-        </p>
-      </div>
-    </div>
-  );
-}
 
 export function ChatDashboard() {
   const defaultAgent = process.env.NEXT_PUBLIC_DEFAULT_AGENT_ID ?? "ace";
