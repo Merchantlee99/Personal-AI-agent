@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 
 from app.middleware.security import SecurityMiddleware
-from app.routers import agent, calendar, hermes_briefing, llm, notebooklm, search, telegram
+from app.routers import agent, calendar, hermes_briefing, llm, notebooklm, search, telegram, usage
 from app.utils.telegram_bridge import ensure_background_poller, stop_background_poller
 
 app = FastAPI(title="NanoClaw LLM Proxy", version="1.0.0")
@@ -13,6 +13,7 @@ app.include_router(calendar.router, prefix="/api")
 app.include_router(hermes_briefing.router, prefix="/api")
 app.include_router(telegram.router, prefix="/api")
 app.include_router(notebooklm.router, prefix="/api")
+app.include_router(usage.router, prefix="/api")
 
 
 @app.get("/health")

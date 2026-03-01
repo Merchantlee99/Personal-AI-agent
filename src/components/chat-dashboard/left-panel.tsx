@@ -1,12 +1,8 @@
 import type { CSSProperties } from "react";
 import type { DashboardAgentId } from "@/components/chat-dashboard/telegram-health";
+import { STATUS_THEME, type DashboardAgentTheme } from "@/components/chat-dashboard/design-tokens";
 
 type AgentStatus = "online" | "busy" | "idle";
-
-type AgentTheme = {
-  glow: string;
-  rgb: string;
-};
 
 type LeftPanelAgent = {
   id: DashboardAgentId;
@@ -20,8 +16,8 @@ type LeftPanelProps = {
   width: number;
   topBottomGap: number;
   islandGap: number;
-  activeTheme: AgentTheme;
-  agentThemeById: Record<DashboardAgentId, AgentTheme>;
+  activeTheme: DashboardAgentTheme;
+  agentThemeById: Record<DashboardAgentId, DashboardAgentTheme>;
   agents: LeftPanelAgent[];
   selectedAgentId: DashboardAgentId;
   unreadByAgent: Record<DashboardAgentId, number>;
@@ -47,6 +43,10 @@ export function LeftPanel({
 }: LeftPanelProps) {
   return (
     <aside
+      data-dashboard-side-panel="left"
+      data-dashboard-slot="left"
+      role="complementary"
+      aria-label="Agent controls"
       className="fixed z-30 overflow-hidden rounded-[24px] backdrop-blur-xl transition-all duration-500 ease-out"
       style={{
         left: islandGap,
@@ -126,8 +126,8 @@ export function LeftPanel({
                             agent.status === "online"
                               ? agentTheme.glow
                               : agent.status === "busy"
-                                ? "#EAB308"
-                                : "#6B7280",
+                                ? STATUS_THEME.busy
+                                : STATUS_THEME.idle,
                           animation: agent.status === "online" ? "statusPulse 2s ease-in-out infinite" : undefined,
                           boxShadow:
                             agent.status === "online"

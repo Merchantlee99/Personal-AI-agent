@@ -29,6 +29,7 @@ from app.utils.memory_writer import (
     quarantine_memory_updates,
 )
 from app.utils.provider_clients import call_provider
+from app.utils.usage_store import record_usage_event
 
 PERSONAS_DIR = Path("/app/personas")
 VAULT_DIR = Path("/app/vault")
@@ -400,7 +401,38 @@ async def run_agent_turn(
 
     provider = str(config.get("provider", ""))
     model = str(config.get("model", ""))
-    raw_content = await call_provider(provider, system, conversation_context.messages, model)
+    try:
+        provider_result = await call_provider(provider, system, conversation_context.messages, model)
+    except HTTPException as exc:
+        record_usage_event(
+            agent_id=normalized_agent_id,
+            provider=provider,
+            model=model,
+            success=False,
+            error_code=f"http_{exc.status_code}",
+        )
+        raise
+    except Exception:
+        record_usage_event(
+            agent_id=normalized_agent_id,
+            provider=provider,
+            model=model,
+            success=False,
+            error_code="unknown",
+        )
+        raise
+
+    record_usage_event(
+        agent_id=normalized_agent_id,
+        provider=provider,
+        model=model,
+        success=True,
+        input_tokens=provider_result.input_tokens,
+        output_tokens=provider_result.output_tokens,
+        total_tokens=provider_result.total_tokens,
+    )
+
+    raw_content = provider_result.content
     content = _postprocess_assistant_content(
         agent_id=normalized_agent_id,
         content=raw_content,

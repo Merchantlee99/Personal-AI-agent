@@ -1,6 +1,6 @@
 "use client";
 
-import { type CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -8,13 +8,32 @@ import {
   resolveTelegramBadge,
   type TelegramBadge,
 } from "@/components/chat-dashboard/telegram-health";
+import {
+  AGENT_THEME,
+  CHAT_PANEL_LAYOUT,
+  DASHBOARD_LAYOUT,
+  resolveDashboardLayout,
+  type DashboardAgentId,
+  type DashboardAgentTheme,
+} from "@/components/chat-dashboard/design-tokens";
+import { DashboardSlot } from "@/components/chat-dashboard/dashboard-slot";
+import {
+  CHAT_PANEL_ACTION_PRIORITY,
+  INITIAL_CHAT_PANEL_STATE,
+  isChatPanelOpen,
+  isChatPanelResizing,
+  reduceChatPanelState,
+  type ChatPanelAction,
+} from "@/components/chat-dashboard/chat-panel-state";
 import { LeftPanel } from "@/components/chat-dashboard/left-panel";
 import { RightPanel } from "@/components/chat-dashboard/right-panel";
 import { useTelegramHealth } from "@/components/chat-dashboard/use-telegram-health";
+import { useUsageSummary, type UsageProviderId } from "@/components/chat-dashboard/use-usage-summary";
+import { emitUxMetric } from "@/components/chat-dashboard/ux-metrics";
 import { TELEGRAM_CODES } from "@/lib/telegram-codes";
 import { cn } from "@/lib/utils";
 
-type AgentId = "ace" | "owl" | "dolphin";
+type AgentId = DashboardAgentId;
 type AgentStatus = "online" | "busy" | "idle";
 type ReactionState = "neutral" | "thinking" | "warning";
 
@@ -27,8 +46,6 @@ type Agent = {
   status: AgentStatus;
   tabooWord: string;
   reportStyle: string;
-  primaryColor: string;
-  secondaryColor?: string;
 };
 
 type ChatMessage = {
@@ -51,29 +68,7 @@ type AgentUpdate = {
   ackKey: string;
 };
 
-type AgentTheme = {
-  main: string;
-  glow: string;
-  rgb: string;
-};
-
-const LEFT_PANEL_WIDTH = 280;
-const RIGHT_PANEL_WIDTH = 320;
-const ISLAND_GAP = 16;
-const CENTER_LEFT_INSET = LEFT_PANEL_WIDTH + ISLAND_GAP * 3;
-const CENTER_RIGHT_INSET = RIGHT_PANEL_WIDTH + ISLAND_GAP * 3;
-const SIDE_ISLAND_TOP_BOTTOM_GAP = 16;
-const CHAT_PANEL_MIN_HEIGHT = 260;
-const CHAT_PANEL_COLLAPSED_HEIGHT = 62;
-const COMPOSER_MIN_HEIGHT = 24;
-const COMPOSER_MAX_HEIGHT = 200;
 const SEEN_UPDATE_CACHE_LIMIT = 4000;
-
-const AGENT_THEME: Record<AgentId, AgentTheme> = {
-  ace: { main: "#4338CA", glow: "#6366F1", rgb: "99,102,241" },
-  owl: { main: "#EA580C", glow: "#F97316", rgb: "249,115,22" },
-  dolphin: { main: "#059669", glow: "#10B981", rgb: "16,185,129" },
-};
 
 const AGENTS: Agent[] = [
   {
@@ -85,7 +80,6 @@ const AGENTS: Agent[] = [
     status: "online",
     tabooWord: "\"아마\"(근거 없는 추측)",
     reportStyle: "결론 1줄 → 근거 2줄 → 다음 액션 1줄",
-    primaryColor: "#1E1B4B"
   },
   {
     id: "owl",
@@ -96,8 +90,6 @@ const AGENTS: Agent[] = [
     status: "online",
     tabooWord: "\"대충\"(비구조화 요약)",
     reportStyle: "요약 3줄 → 구조화 목록 → 연결 노트 1줄",
-    primaryColor: "#F97316",
-    secondaryColor: "#FB923C"
   },
   {
     id: "dolphin",
@@ -108,7 +100,6 @@ const AGENTS: Agent[] = [
     status: "busy",
     tabooWord: "\"출처 없음\"(검증 없는 인용)",
     reportStyle: "HOT/INSIGHT/MONITOR + 출처 2개 + 추천 액션",
-    primaryColor: "#10B981"
   }
 ];
 
@@ -131,38 +122,14 @@ const PARTICLE_PRESETS = [
   { angle: 324, delay: 4.05 }
 ] as const;
 
-const PROVIDER_USAGE = [
-  {
-    provider: "Anthropic",
-    dailyBudgetUsd: 80,
-    usedUsd: 31.4,
-    inputTokens: 572340,
-    outputTokens: 214987,
-    errorRate: 0.8
-  },
-  {
-    provider: "OpenAI",
-    dailyBudgetUsd: 60,
-    usedUsd: 52.7,
-    inputTokens: 420120,
-    outputTokens: 191234,
-    errorRate: 2.1
-  },
-  {
-    provider: "Gemini",
-    dailyBudgetUsd: 50,
-    usedUsd: 12.8,
-    inputTokens: 132903,
-    outputTokens: 50888,
-    errorRate: 0.4
-  }
-] satisfies Array<{
-  provider: "Anthropic" | "OpenAI" | "Gemini";
+const PROVIDER_PANEL_META = [
+  { id: "anthropic", label: "Anthropic", dailyBudgetUsd: 80 },
+  { id: "openai", label: "OpenAI", dailyBudgetUsd: 60 },
+  { id: "gemini", label: "Gemini", dailyBudgetUsd: 50 },
+] as const satisfies Array<{
+  id: UsageProviderId;
+  label: "Anthropic" | "OpenAI" | "Gemini";
   dailyBudgetUsd: number;
-  usedUsd: number;
-  inputTokens: number;
-  outputTokens: number;
-  errorRate: number;
 }>;
 
 const INITIAL_CREATED_AT = "2026-02-24T00:00:00.000Z";
@@ -201,6 +168,18 @@ const INITIAL_UNREAD: Record<AgentId, number> = {
   ace: 0,
   owl: 0,
   dolphin: 0
+};
+
+const INITIAL_DRAFTS: Record<AgentId, string> = {
+  ace: "",
+  owl: "",
+  dolphin: "",
+};
+
+const INITIAL_RETRY_BY_AGENT: Record<AgentId, string | null> = {
+  ace: null,
+  owl: null,
+  dolphin: null,
 };
 
 function isAgentId(value: string): value is AgentId {
@@ -390,11 +369,13 @@ function getCenterStatus(reaction: ReactionState): string {
 function CenterAgentSignal({
   agent,
   reaction,
+  theme,
 }: {
   agent: Agent;
   reaction: ReactionState;
+  theme: DashboardAgentTheme;
 }) {
-  const accent = agent.secondaryColor ?? agent.primaryColor;
+  const accent = theme.glow;
   const status = getCenterStatus(reaction);
 
   return (
@@ -406,7 +387,7 @@ function CenterAgentSignal({
             boxShadow: `0 0 42px -14px ${accent}`
           }}
         >
-          <AgentGlyph key={agent.id} agent={agent} reaction={reaction} size={260} />
+          <AgentGlyph agent={agent} reaction={reaction} size={260} />
         </div>
         <p className="text-sm font-semibold uppercase tracking-[0.24em] text-stone-100">
           {agent.name.toUpperCase()} - {status}
@@ -419,22 +400,27 @@ function CenterAgentSignal({
 export function ChatDashboard() {
   const defaultAgent = process.env.NEXT_PUBLIC_DEFAULT_AGENT_ID ?? "ace";
 
+  const [viewportWidth, setViewportWidth] = useState<number>(1440);
+  const [chatPanelState, dispatchChatPanel] = useReducer(
+    reduceChatPanelState,
+    INITIAL_CHAT_PANEL_STATE
+  );
   const [selectedAgentId, setSelectedAgentId] = useState<AgentId>(
     isAgentId(defaultAgent) ? defaultAgent : "ace"
   );
   const [histories, setHistories] = useState<Record<AgentId, ChatMessage[]>>(INITIAL_HISTORIES);
   const [unreadByAgent, setUnreadByAgent] = useState<Record<AgentId, number>>(INITIAL_UNREAD);
-  const [inputText, setInputText] = useState("");
+  const [draftByAgent, setDraftByAgent] = useState<Record<AgentId, string>>(INITIAL_DRAFTS);
+  const [retryByAgent, setRetryByAgent] = useState<Record<AgentId, string | null>>(INITIAL_RETRY_BY_AGENT);
   const [isSending, setIsSending] = useState(false);
   const [pendingAgents, setPendingAgents] = useState<AgentId[]>([]);
   const [isHydrated, setIsHydrated] = useState(false);
-  const [chatPanelOpen, setChatPanelOpen] = useState(false);
-  const [chatPanelHeight, setChatPanelHeight] = useState(420);
-  const [isResizingChat, setIsResizingChat] = useState(false);
+  const [chatPanelHeight, setChatPanelHeight] = useState<number>(CHAT_PANEL_LAYOUT.defaultHeight);
   const [isHandleHovered, setIsHandleHovered] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [isSendPressing, setIsSendPressing] = useState(false);
   const telegramHealth = useTelegramHealth();
+  const usageSummary = useUsageSummary();
 
   const endRef = useRef<HTMLDivElement | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
@@ -444,7 +430,22 @@ export function ChatDashboard() {
   const historiesRef = useRef<Record<AgentId, ChatMessage[]>>(INITIAL_HISTORIES);
   const selectedAgentIdRef = useRef<AgentId>(selectedAgentId);
   const resizeStartYRef = useRef(0);
-  const resizeStartHeightRef = useRef(420);
+  const resizeStartHeightRef = useRef<number>(CHAT_PANEL_LAYOUT.defaultHeight);
+  const autoExpandBlockedUntilRef = useRef(0);
+  const scrollTopByAgentRef = useRef<Record<AgentId, number>>({ ace: 0, owl: 0, dolphin: 0 });
+  const stickToBottomByAgentRef = useRef<Record<AgentId, boolean>>({
+    ace: true,
+    owl: true,
+    dolphin: true,
+  });
+  const lastPanelActionPriorityRef = useRef(0);
+  const lastSwitchMetaRef = useRef<{
+    from: AgentId;
+    to: AgentId;
+    at: number;
+    measured: boolean;
+  } | null>(null);
+  const sendStartByAgentRef = useRef<Partial<Record<AgentId, number>>>({});
 
   const activeAgent = useMemo(
     () => AGENTS.find((agent) => agent.id === selectedAgentId) ?? AGENTS[0],
@@ -456,8 +457,21 @@ export function ChatDashboard() {
       return acc;
     }, {} as Record<AgentId, ReactionState>);
   }, [histories, pendingAgents]);
+  const layout = useMemo(() => resolveDashboardLayout(viewportWidth), [viewportWidth]);
   const activeTheme = AGENT_THEME[selectedAgentId];
+  const activeThemeCssVars = useMemo(
+    () =>
+      ({
+        "--dashboard-agent-main": activeTheme.main,
+        "--dashboard-agent-glow": activeTheme.glow,
+        "--dashboard-agent-rgb": activeTheme.rgb,
+      } as CSSProperties),
+    [activeTheme]
+  );
+  const chatPanelOpen = isChatPanelOpen(chatPanelState);
+  const isResizingChat = isChatPanelResizing(chatPanelState);
   const activeHistory = histories[selectedAgentId] ?? [];
+  const inputText = draftByAgent[selectedAgentId] ?? "";
   const telegramBridge = telegramHealth?.telegram;
   const telegramCode = telegramHealth?.code ?? TELEGRAM_CODES.HEALTH_UNKNOWN;
   const telegramBridgeAgentMap = useMemo(
@@ -472,7 +486,63 @@ export function ChatDashboard() {
       }, {} as Record<AgentId, TelegramBadge>),
     [telegramBridgeAgentMap, telegramHealth]
   );
-  const composerMaxHeight = COMPOSER_MAX_HEIGHT;
+  const providerUsage = useMemo(() => {
+    const summaryByProvider = new Map(
+      (usageSummary?.providers ?? []).map((item) => [item.provider, item] as const)
+    );
+    return PROVIDER_PANEL_META.map((meta) => {
+      const row = summaryByProvider.get(meta.id);
+      const source: "live" | "fallback" = row ? "live" : "fallback";
+      return {
+        provider: meta.label,
+        dailyBudgetUsd: meta.dailyBudgetUsd,
+        estimatedCostUsd: row?.estimated_cost_usd ?? 0,
+        settledCostUsd: row?.settled_cost_usd ?? null,
+        inputTokens: row?.input_tokens ?? 0,
+        outputTokens: row?.output_tokens ?? 0,
+        requestCount: row?.request_count ?? 0,
+        errorCount: row?.error_count ?? 0,
+        errorRate: row?.error_rate ?? 0,
+        source,
+      };
+    });
+  }, [usageSummary]);
+  const composerMaxHeight = CHAT_PANEL_LAYOUT.composerMaxHeight;
+  const enqueueChatPanelAction = useCallback((action: ChatPanelAction) => {
+    const priority = CHAT_PANEL_ACTION_PRIORITY[action.type] ?? 0;
+    if (priority < lastPanelActionPriorityRef.current) {
+      return;
+    }
+    lastPanelActionPriorityRef.current = priority;
+    dispatchChatPanel(action);
+    window.requestAnimationFrame(() => {
+      lastPanelActionPriorityRef.current = 0;
+    });
+  }, []);
+  const setDraftForAgent = useCallback((agentId: AgentId, text: string) => {
+    setDraftByAgent((prev) => ({
+      ...prev,
+      [agentId]: text,
+    }));
+  }, []);
+  const setSelectedAgentDraft = useCallback((text: string) => {
+    setDraftForAgent(selectedAgentId, text);
+  }, [selectedAgentId, setDraftForAgent]);
+  const markRetryDraft = useCallback((agentId: AgentId, draft: string | null) => {
+    setRetryByAgent((prev) => ({
+      ...prev,
+      [agentId]: draft,
+    }));
+  }, []);
+  const rememberActiveScrollContext = useCallback(() => {
+    const scrollEl = chatScrollRef.current;
+    if (!scrollEl) {
+      return;
+    }
+    const nearBottom = scrollEl.scrollHeight - (scrollEl.scrollTop + scrollEl.clientHeight) <= 28;
+    scrollTopByAgentRef.current[selectedAgentIdRef.current] = scrollEl.scrollTop;
+    stickToBottomByAgentRef.current[selectedAgentIdRef.current] = nearBottom;
+  }, []);
   const rememberSeenUpdateKey = useCallback((key: string) => {
     if (seenUpdateIdsRef.current.has(key)) {
       return;
@@ -490,8 +560,52 @@ export function ChatDashboard() {
   }, []);
 
   useEffect(() => {
-    endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeHistory.length, isSending, chatPanelOpen]);
+    if (!chatPanelOpen) {
+      return;
+    }
+    if (!stickToBottomByAgentRef.current[selectedAgentId]) {
+      return;
+    }
+    endRef.current?.scrollIntoView({ behavior: isSending ? "auto" : "smooth" });
+  }, [activeHistory.length, chatPanelOpen, isSending, selectedAgentId]);
+
+  useEffect(() => {
+    if (!chatPanelOpen) {
+      return;
+    }
+
+    const handleOutsidePointerDown = (event: PointerEvent) => {
+      if (isResizingChat) {
+        return;
+      }
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      if (target.closest("[data-chat-panel='conversation']")) {
+        return;
+      }
+      if (target.closest("[data-dashboard-side-panel='left']")) {
+        return;
+      }
+      if (target.closest("[data-dashboard-side-panel='right']")) {
+        return;
+      }
+
+      emitUxMetric({
+        metric: "chat_panel_outside_close",
+        agentId: selectedAgentIdRef.current,
+        value: 1,
+      });
+      rememberActiveScrollContext();
+      enqueueChatPanelAction({ type: "CLOSE", source: "outside" });
+    };
+
+    document.addEventListener("pointerdown", handleOutsidePointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", handleOutsidePointerDown);
+    };
+  }, [chatPanelOpen, enqueueChatPanelAction, isResizingChat, rememberActiveScrollContext]);
 
   useEffect(() => {
     setUnreadByAgent((prev) => ({ ...prev, [selectedAgentId]: 0 }));
@@ -502,15 +616,69 @@ export function ChatDashboard() {
   }, [histories]);
 
   useEffect(() => {
+    const previousAgentId = selectedAgentIdRef.current;
+    if (previousAgentId !== selectedAgentId) {
+      rememberActiveScrollContext();
+      lastSwitchMetaRef.current = {
+        from: previousAgentId,
+        to: selectedAgentId,
+        at: Date.now(),
+        measured: false,
+      };
+    }
     selectedAgentIdRef.current = selectedAgentId;
-  }, [selectedAgentId]);
+  }, [rememberActiveScrollContext, selectedAgentId]);
+
+  useEffect(() => {
+    if (!chatPanelOpen) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const scrollEl = chatScrollRef.current;
+      if (!scrollEl) {
+        return;
+      }
+
+      const savedTop = scrollTopByAgentRef.current[selectedAgentId];
+      if (savedTop > 0) {
+        scrollEl.scrollTop = savedTop;
+        return;
+      }
+      scrollEl.scrollTop = scrollEl.scrollHeight;
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [chatPanelOpen, selectedAgentId]);
 
   useEffect(() => {
     setIsHydrated(true);
   }, []);
 
   useEffect(() => {
+    const handleWindowResize = () => {
+      setViewportWidth(window.innerWidth);
+    };
+    handleWindowResize();
+    window.addEventListener("resize", handleWindowResize);
+    return () => window.removeEventListener("resize", handleWindowResize);
+  }, []);
+
+  useEffect(() => {
     const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (chatPanelOpen && !isResizingChat) {
+          enqueueChatPanelAction({ type: "CLOSE", source: "escape" });
+        }
+        return;
+      }
+
+      if ((event.metaKey || event.ctrlKey) && event.key === "/") {
+        event.preventDefault();
+        enqueueChatPanelAction({ type: "TOGGLE" });
+        return;
+      }
+
       if (!(event.metaKey || event.ctrlKey)) {
         return;
       }
@@ -531,7 +699,7 @@ export function ChatDashboard() {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [chatPanelOpen, enqueueChatPanelAction, isResizingChat]);
 
   useEffect(() => {
     let cancelled = false;
@@ -602,7 +770,7 @@ export function ChatDashboard() {
             return next;
           });
 
-          setChatPanelOpen(true);
+          enqueueChatPanelAction({ type: "OPEN" });
         }
 
         const ackKeys = [...new Set(validUpdates.map((item) => item.ackKey))];
@@ -627,23 +795,19 @@ export function ChatDashboard() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [rememberSeenUpdateKey]);
+  }, [enqueueChatPanelAction, rememberSeenUpdateKey]);
 
-  const clampChatHeight = (height: number) => {
-    const maxHeight = typeof window === "undefined"
-      ? 760
-      : Math.max(CHAT_PANEL_MIN_HEIGHT, window.innerHeight - ISLAND_GAP * 2);
-    return Math.min(Math.max(height, CHAT_PANEL_MIN_HEIGHT), maxHeight);
-  };
+  const clampChatHeight = useCallback((height: number) => {
+    const maxHeight =
+      typeof window === "undefined"
+        ? 760
+        : Math.max(CHAT_PANEL_LAYOUT.minHeight, window.innerHeight - layout.islandGap * 2);
+    return Math.min(Math.max(height, CHAT_PANEL_LAYOUT.minHeight), maxHeight);
+  }, [layout.islandGap]);
 
   useEffect(() => {
-    const onWindowResize = () => {
-      setChatPanelHeight((prev) => clampChatHeight(prev));
-    };
-
-    window.addEventListener("resize", onWindowResize);
-    return () => window.removeEventListener("resize", onWindowResize);
-  }, []);
+    setChatPanelHeight((prev) => clampChatHeight(prev));
+  }, [clampChatHeight]);
 
   useEffect(() => {
     if (!isResizingChat) {
@@ -656,42 +820,63 @@ export function ChatDashboard() {
     };
 
     const handleMouseUp = () => {
-      setIsResizingChat(false);
+      autoExpandBlockedUntilRef.current =
+        Date.now() + CHAT_PANEL_LAYOUT.autoExpandBlockedMsAfterResize;
+      enqueueChatPanelAction({ type: "END_RESIZE" });
     };
 
+    document.body.style.userSelect = "none";
+    document.body.style.cursor = "row-resize";
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
     return () => {
+      document.body.style.removeProperty("user-select");
+      document.body.style.removeProperty("cursor");
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [isResizingChat]);
+  }, [clampChatHeight, enqueueChatPanelAction, isResizingChat]);
+
+  const ensureChatPanelFitsContent = useCallback(() => {
+    if (!chatPanelOpen || isResizingChat) {
+      return;
+    }
+    if (Date.now() < autoExpandBlockedUntilRef.current) {
+      return;
+    }
+
+    const scrollEl = chatScrollRef.current;
+    if (!scrollEl) {
+      return;
+    }
+
+    const overflow = scrollEl.scrollHeight - scrollEl.clientHeight;
+    if (overflow <= 16) {
+      return;
+    }
+
+    setChatPanelHeight((prev) => {
+      const next = clampChatHeight(prev + overflow + CHAT_PANEL_LAYOUT.autoExpandPadding);
+      return next > prev ? next : prev;
+    });
+  }, [chatPanelOpen, clampChatHeight, isResizingChat]);
 
   useEffect(() => {
     if (!chatPanelOpen) {
       return;
     }
 
-    const frame = window.requestAnimationFrame(() => {
-      const scrollEl = chatScrollRef.current;
-      if (!scrollEl) {
-        return;
-      }
-
-      const overflow = scrollEl.scrollHeight - scrollEl.clientHeight;
-      if (overflow <= 16) {
-        return;
-      }
-
-      const maxHeight = Math.max(CHAT_PANEL_MIN_HEIGHT, window.innerHeight - ISLAND_GAP * 2);
-      setChatPanelHeight((prev) => {
-        const next = Math.min(maxHeight, prev + overflow + 48);
-        return next > prev ? next : prev;
-      });
-    });
+    const frame = window.requestAnimationFrame(ensureChatPanelFitsContent);
 
     return () => window.cancelAnimationFrame(frame);
-  }, [chatPanelOpen, selectedAgentId, activeHistory.length, isSending, chatPanelHeight]);
+  }, [
+    activeHistory.length,
+    chatPanelOpen,
+    ensureChatPanelFitsContent,
+    inputText,
+    isSending,
+    selectedAgentId,
+  ]);
 
   useEffect(() => {
     const composerEl = composerRef.current;
@@ -701,7 +886,7 @@ export function ChatDashboard() {
 
     composerEl.style.height = "auto";
     const nextHeight = Math.min(
-      Math.max(composerEl.scrollHeight, COMPOSER_MIN_HEIGHT),
+      Math.max(composerEl.scrollHeight, CHAT_PANEL_LAYOUT.composerMinHeight),
       composerMaxHeight
     );
     composerEl.style.height = `${nextHeight}px`;
@@ -712,7 +897,9 @@ export function ChatDashboard() {
   const startResizeChat = (clientY: number) => {
     resizeStartYRef.current = clientY;
     resizeStartHeightRef.current = chatPanelHeight;
-    setIsResizingChat(true);
+    autoExpandBlockedUntilRef.current =
+      Date.now() + CHAT_PANEL_LAYOUT.autoExpandBlockedMsAfterResize;
+    enqueueChatPanelAction({ type: "START_RESIZE" });
   };
 
   const appendAgentMessage = (agentId: AgentId, message: ChatMessage) => {
@@ -750,6 +937,7 @@ export function ChatDashboard() {
 
   const sendToSingleAgent = async (message: string) => {
     const agentId = selectedAgentId;
+    sendStartByAgentRef.current[agentId] = performance.now();
     const baseHistory = historiesRef.current[agentId] ?? [];
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -775,6 +963,15 @@ export function ChatDashboard() {
         createdAt: new Date().toISOString(),
         origin: "manual"
       });
+      markRetryDraft(agentId, null);
+      const startedAt = sendStartByAgentRef.current[agentId];
+      if (typeof startedAt === "number") {
+        emitUxMetric({
+          metric: "chat_send_success_ms",
+          agentId,
+          value: Math.round(performance.now() - startedAt),
+        });
+      }
     } catch (error) {
       appendAgentMessage(agentId, {
         id: crypto.randomUUID(),
@@ -782,6 +979,7 @@ export function ChatDashboard() {
         content: `오류: ${error instanceof Error ? error.message : "채팅 요청 실패"}`,
         createdAt: new Date().toISOString()
       });
+      markRetryDraft(agentId, message);
     } finally {
       setPendingAgents([]);
     }
@@ -792,7 +990,8 @@ export function ChatDashboard() {
       return;
     }
 
-    setChatPanelOpen(true);
+    enqueueChatPanelAction({ type: "OPEN" });
+    stickToBottomByAgentRef.current = { ace: true, owl: true, dolphin: true };
     setIsSending(true);
     try {
       const nowIso = new Date().toISOString();
@@ -819,6 +1018,11 @@ export function ChatDashboard() {
         owl: [...(prev.owl ?? []), userMessages.owl],
         dolphin: [...(prev.dolphin ?? []), userMessages.dolphin],
       }));
+      sendStartByAgentRef.current = {
+        ace: performance.now(),
+        owl: performance.now(),
+        dolphin: performance.now(),
+      };
       setPendingAgents(AGENTS.map((agent) => agent.id));
 
       const results = await Promise.all(
@@ -861,6 +1065,23 @@ export function ChatDashboard() {
         return next;
       });
 
+      for (const result of results) {
+        if (result.message.role === "assistant") {
+          markRetryDraft(result.agentId, null);
+          const startedAt = sendStartByAgentRef.current[result.agentId];
+          if (typeof startedAt === "number") {
+            emitUxMetric({
+              metric: "chat_send_success_ms",
+              agentId: result.agentId,
+              value: Math.round(performance.now() - startedAt),
+              meta: { source: "bulk" },
+            });
+          }
+        } else {
+          markRetryDraft(result.agentId, messagesByAgent[result.agentId]);
+        }
+      }
+
       setUnreadByAgent((prev) => {
         const next = { ...prev };
         for (const result of results) {
@@ -889,9 +1110,10 @@ export function ChatDashboard() {
       return;
     }
 
+    stickToBottomByAgentRef.current[selectedAgentId] = true;
     triggerSendFeedback();
-    setChatPanelOpen(true);
-    setInputText("");
+    enqueueChatPanelAction({ type: "OPEN" });
+    setSelectedAgentDraft("");
     setIsSending(true);
 
     try {
@@ -901,70 +1123,118 @@ export function ChatDashboard() {
     }
   }
 
+  async function retryLastFailedMessage() {
+    const retryDraft = retryByAgent[selectedAgentId];
+    if (!retryDraft || isSending) {
+      return;
+    }
+
+    stickToBottomByAgentRef.current[selectedAgentId] = true;
+    triggerSendFeedback();
+    enqueueChatPanelAction({ type: "OPEN" });
+    setIsSending(true);
+    try {
+      await sendToSingleAgent(retryDraft);
+    } finally {
+      setIsSending(false);
+    }
+  }
+
+  async function copyRetryDraft() {
+    const retryDraft = retryByAgent[selectedAgentId];
+    if (!retryDraft) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(retryDraft);
+    } catch {
+      // Ignore clipboard failure in locked browser contexts.
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-[#020307] text-stone-100">
-      <LeftPanel
-        width={LEFT_PANEL_WIDTH}
-        topBottomGap={SIDE_ISLAND_TOP_BOTTOM_GAP}
-        islandGap={ISLAND_GAP}
-        activeTheme={activeTheme}
-        agentThemeById={AGENT_THEME}
-        agents={AGENTS.map((agent) => ({
-          id: agent.id,
-          name: agent.name,
-          legacyName: agent.legacyName,
-          role: agent.role,
-          status: agent.status,
-        }))}
-        selectedAgentId={selectedAgentId}
-        unreadByAgent={unreadByAgent}
-        onSelectAgent={setSelectedAgentId}
-      />
+    <div
+      className="dashboard-theme-shell min-h-screen bg-[#020307] text-stone-100"
+      style={activeThemeCssVars}
+    >
+      <DashboardSlot id="left" label="Left Control Panel">
+        {layout.showLeftPanel ? (
+          <LeftPanel
+            width={layout.leftPanelWidth}
+            topBottomGap={DASHBOARD_LAYOUT.sideTopBottomGap}
+            islandGap={layout.islandGap}
+            activeTheme={activeTheme}
+            agentThemeById={AGENT_THEME}
+            agents={AGENTS.map((agent) => ({
+              id: agent.id,
+              name: agent.name,
+              legacyName: agent.legacyName,
+              role: agent.role,
+              status: agent.status,
+            }))}
+            selectedAgentId={selectedAgentId}
+            unreadByAgent={unreadByAgent}
+            onSelectAgent={setSelectedAgentId}
+          />
+        ) : null}
+      </DashboardSlot>
 
-      <RightPanel
-        width={RIGHT_PANEL_WIDTH}
-        topBottomGap={SIDE_ISLAND_TOP_BOTTOM_GAP}
-        islandGap={ISLAND_GAP}
-        activeTheme={activeTheme}
-        providerUsage={PROVIDER_USAGE}
-        agents={AGENTS.map((agent) => ({ id: agent.id, name: agent.name }))}
-        telegramStatus={telegramHealth?.status ?? null}
-        telegramCode={telegramCode}
-        telegramPollInterval={telegramBridge?.poll_interval_sec ?? null}
-        telegramBackgroundRunning={Boolean(telegramBridge?.background_running)}
-        telegramBadgeByAgent={telegramBadgeByAgent}
-        telegramBridgeAgentMap={telegramBridgeAgentMap}
-      />
+      <DashboardSlot id="right" label="Right Insights Panel">
+        {layout.showRightPanel ? (
+          <RightPanel
+            width={layout.rightPanelWidth}
+            topBottomGap={DASHBOARD_LAYOUT.sideTopBottomGap}
+            islandGap={layout.islandGap}
+            activeTheme={activeTheme}
+            providerUsage={providerUsage}
+            agents={AGENTS.map((agent) => ({ id: agent.id, name: agent.name }))}
+            telegramStatus={telegramHealth?.status ?? null}
+            telegramCode={telegramCode}
+            telegramPollInterval={telegramBridge?.poll_interval_sec ?? null}
+            telegramBackgroundRunning={Boolean(telegramBridge?.background_running)}
+            telegramBadgeByAgent={telegramBadgeByAgent}
+            telegramBridgeAgentMap={telegramBridgeAgentMap}
+          />
+        ) : null}
+      </DashboardSlot>
 
-      <main
-        className="relative min-h-screen"
-        style={{ paddingLeft: CENTER_LEFT_INSET, paddingRight: CENTER_RIGHT_INSET }}
+      <DashboardSlot id="center" className="contents" label="Center Agent Signal">
+        <main
+        className="relative min-h-screen transition-[padding] duration-500 ease-out"
+        style={{ paddingLeft: layout.centerLeftInset, paddingRight: layout.centerRightInset }}
       >
         <div className="flex min-h-screen flex-col">
           <section className="flex flex-1 items-center justify-center px-8 pb-40 pt-10">
             <CenterAgentSignal
               agent={activeAgent}
               reaction={reactionByAgent[activeAgent.id]}
+              theme={activeTheme}
             />
           </section>
         </div>
 
+        <DashboardSlot id="chat" className="contents" label="Conversation Panel">
         <div
+          data-chat-panel="conversation"
+          data-dashboard-slot="chat"
+          role="region"
+          aria-label="Conversation panel"
           className="fixed z-40 overflow-hidden rounded-[16px] backdrop-blur-[10px] transition-[height,background,border-color,box-shadow] duration-500 ease-out"
           onClick={() => {
             if (!chatPanelOpen) {
-              setChatPanelOpen(true);
+              enqueueChatPanelAction({ type: "OPEN" });
             }
           }}
           style={{
-            left: CENTER_LEFT_INSET,
-            right: CENTER_RIGHT_INSET,
-            bottom: ISLAND_GAP,
-            height: chatPanelOpen ? chatPanelHeight : CHAT_PANEL_COLLAPSED_HEIGHT,
-            maxHeight: `calc(100vh - ${ISLAND_GAP * 2}px)`,
-            background: `linear-gradient(180deg, rgba(${activeTheme.rgb}, 0.04) 0%, rgba(10, 10, 15, 0.98) 100%)`,
-            border: `1px solid rgba(${activeTheme.rgb}, 0.12)`,
-            boxShadow: `0 -4px 30px rgba(${activeTheme.rgb}, 0.05)`,
+            left: layout.centerLeftInset,
+            right: layout.centerRightInset,
+            bottom: layout.islandGap,
+            height: chatPanelOpen ? chatPanelHeight : CHAT_PANEL_LAYOUT.collapsedHeight,
+            maxHeight: `calc(100vh - ${layout.islandGap * 2}px)`,
+            background:
+              "linear-gradient(180deg, rgba(var(--dashboard-agent-rgb), 0.04) 0%, rgba(10, 10, 15, 0.98) 100%)",
+            border: "1px solid rgba(var(--dashboard-agent-rgb), 0.12)",
+            boxShadow: "0 -4px 30px rgba(var(--dashboard-agent-rgb), 0.05)",
           }}
         >
           <div
@@ -974,6 +1244,7 @@ export function ChatDashboard() {
             )}
             onMouseDown={(event) => {
               if (chatPanelOpen) {
+                event.preventDefault();
                 startResizeChat(event.clientY);
               }
             }}
@@ -984,13 +1255,15 @@ export function ChatDashboard() {
               type="button"
               onClick={(event) => {
                 event.stopPropagation();
-                setChatPanelOpen((prev) => !prev);
+                enqueueChatPanelAction({ type: "TOGGLE" });
               }}
               onMouseEnter={() => setIsHandleHovered(true)}
               onMouseLeave={() => setIsHandleHovered(false)}
               className="flex w-full items-center justify-center bg-transparent py-3"
               style={{ border: "none", cursor: "pointer" }}
               aria-label={chatPanelOpen ? "Collapse conversation panel" : "Expand conversation panel"}
+              aria-expanded={chatPanelOpen}
+              title="Ctrl+/ to toggle, Esc to close"
             >
               <span
                 style={{
@@ -998,15 +1271,18 @@ export function ChatDashboard() {
                   height: "4px",
                   borderRadius: "2px",
                   background: isHandleHovered
-                    ? activeTheme.glow
+                    ? "var(--dashboard-agent-glow)"
                     : chatPanelOpen
-                      ? `rgba(${activeTheme.rgb}, 0.3)`
-                      : `rgba(${activeTheme.rgb}, 0.4)`,
-                  boxShadow: isHandleHovered ? `0 0 12px rgba(${activeTheme.rgb}, 0.4)` : "none",
+                      ? "rgba(var(--dashboard-agent-rgb), 0.3)"
+                      : "rgba(var(--dashboard-agent-rgb), 0.4)",
+                  boxShadow: isHandleHovered
+                    ? "0 0 12px rgba(var(--dashboard-agent-rgb), 0.4)"
+                    : "none",
                   transform: isHandleHovered
                     ? `translateY(${chatPanelOpen ? 2 : -2}px)`
                     : "translateY(0)",
-                  transition: "all 0.3s ease",
+                  transition:
+                    "all var(--dashboard-motion-base, 320ms) var(--dashboard-ease-standard, ease)",
                 }}
               />
             </button>
@@ -1027,8 +1303,8 @@ export function ChatDashboard() {
                     type="button"
                     onClick={() => {
                       const prompt = QUICK_PROMPT_BY_AGENT[selectedAgentId];
-                      setInputText(prompt.value);
-                      setChatPanelOpen(true);
+                      setSelectedAgentDraft(prompt.value);
+                      enqueueChatPanelAction({ type: "OPEN" });
                     }}
                     className="rounded-xl border px-3 py-1 text-xs transition-all duration-500 ease-out"
                     style={{
@@ -1056,8 +1332,12 @@ export function ChatDashboard() {
 
                 <div
                   ref={chatScrollRef}
+                  onScroll={rememberActiveScrollContext}
                   className="agent-chat-scroll min-h-0 flex-1 overflow-y-auto pr-1"
                   style={{ "--panel-rgb": activeTheme.rgb } as CSSProperties}
+                  role="log"
+                  aria-live="polite"
+                  aria-relevant="additions text"
                 >
                   <div className="space-y-3 pb-2">
                     {activeHistory.map((message) => {
@@ -1112,6 +1392,27 @@ export function ChatDashboard() {
                           >
                             {message.content}
                           </div>
+                          {message.role === "system" &&
+                          retryByAgent[selectedAgentId] &&
+                          message.id === activeHistory[activeHistory.length - 1]?.id ? (
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void retryLastFailedMessage()}
+                                className="rounded-md border border-rose-200/30 bg-rose-400/10 px-2 py-1 text-[10px] font-medium text-rose-100 transition hover:bg-rose-400/20"
+                                disabled={isSending}
+                              >
+                                재시도
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void copyRetryDraft()}
+                                className="rounded-md border border-white/20 bg-white/5 px-2 py-1 text-[10px] font-medium text-stone-200 transition hover:bg-white/10"
+                              >
+                                요청 복사
+                              </button>
+                            </div>
+                          ) : null}
                           <p className="text-[11px]" style={{ color: "#4B5563" }} suppressHydrationWarning>
                             {isHydrated ? formatTime(message.createdAt) : "--:--"}
                           </p>
@@ -1142,9 +1443,28 @@ export function ChatDashboard() {
                   <textarea
                     ref={composerRef}
                     value={inputText}
-                    onChange={(event) => setInputText(event.target.value)}
+                    onChange={(event) => {
+                      const nextDraft = event.target.value;
+                      setSelectedAgentDraft(nextDraft);
+                      const switchMeta = lastSwitchMetaRef.current;
+                      if (
+                        switchMeta &&
+                        !switchMeta.measured &&
+                        switchMeta.to === selectedAgentId &&
+                        nextDraft.trim().length > 0 &&
+                        Date.now() - switchMeta.at <= 15_000
+                      ) {
+                        emitUxMetric({
+                          metric: "agent_switch_reinput",
+                          agentId: selectedAgentId,
+                          value: Date.now() - switchMeta.at,
+                          meta: { from: switchMeta.from, to: switchMeta.to },
+                        });
+                        switchMeta.measured = true;
+                      }
+                    }}
                     onFocus={() => {
-                      setChatPanelOpen(true);
+                      enqueueChatPanelAction({ type: "OPEN" });
                       setIsInputFocused(true);
                     }}
                     onBlur={() => setIsInputFocused(false)}
@@ -1159,7 +1479,7 @@ export function ChatDashboard() {
                     rows={1}
                     className="w-full bg-transparent px-3 py-2 text-sm leading-relaxed text-stone-100 placeholder:text-[#4B5563] focus-visible:outline-none"
                     style={{
-                      minHeight: "24px",
+                      minHeight: `${CHAT_PANEL_LAYOUT.composerMinHeight}px`,
                       maxHeight: `${composerMaxHeight}px`,
                       resize: "none",
                       border: "none",
@@ -1207,13 +1527,15 @@ export function ChatDashboard() {
                 </div>
 
                 <p className="mt-[6px] pl-2 text-[11px]" style={{ color: "rgba(255,255,255,0.12)" }}>
-                  Enter 전송 · Shift+Enter 줄바꿈
+                  Enter 전송 · Shift+Enter 줄바꿈 · Ctrl+/ 토글 · Esc 닫기
                 </p>
               </div>
             </div>
           </div>
         </div>
+        </DashboardSlot>
       </main>
+      </DashboardSlot>
     </div>
   );
 }

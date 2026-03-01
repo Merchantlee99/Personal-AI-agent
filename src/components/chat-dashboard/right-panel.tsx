@@ -5,19 +5,19 @@ import {
   type TelegramBadge,
   type TelegramHealthAgent,
 } from "@/components/chat-dashboard/telegram-health";
-
-type AgentTheme = {
-  glow: string;
-  rgb: string;
-};
+import type { DashboardAgentTheme } from "@/components/chat-dashboard/design-tokens";
 
 type ProviderUsage = {
   provider: "Anthropic" | "OpenAI" | "Gemini";
   dailyBudgetUsd: number;
-  usedUsd: number;
+  estimatedCostUsd: number;
+  settledCostUsd: number | null;
   inputTokens: number;
   outputTokens: number;
+  requestCount: number;
+  errorCount: number;
   errorRate: number;
+  source: "live" | "fallback";
 };
 
 type PanelAgent = {
@@ -29,7 +29,7 @@ type RightPanelProps = {
   width: number;
   topBottomGap: number;
   islandGap: number;
-  activeTheme: AgentTheme;
+  activeTheme: DashboardAgentTheme;
   providerUsage: ProviderUsage[];
   agents: PanelAgent[];
   telegramStatus: "ok" | "error" | null;
@@ -66,6 +66,10 @@ export function RightPanel({
 }: RightPanelProps) {
   return (
     <aside
+      data-dashboard-side-panel="right"
+      data-dashboard-slot="right"
+      role="complementary"
+      aria-label="Insights and health panel"
       className="fixed z-30 overflow-hidden rounded-[24px] backdrop-blur-xl transition-all duration-500 ease-out"
       style={{
         right: islandGap,
@@ -88,20 +92,28 @@ export function RightPanel({
           </p>
           <div className="mt-2 space-y-2">
             {providerUsage.map((usage) => {
-              const usagePercent = Math.min(Math.round((usage.usedUsd / usage.dailyBudgetUsd) * 100), 100);
-              const remaining = Math.max(usage.dailyBudgetUsd - usage.usedUsd, 0);
+              const usagePercent = Math.min(Math.round((usage.estimatedCostUsd / usage.dailyBudgetUsd) * 100), 100);
+              const remaining = Math.max(usage.dailyBudgetUsd - usage.estimatedCostUsd, 0);
               return (
                 <div key={usage.provider} className="rounded-lg border border-white/10 bg-black/20 p-2">
                   <div className="flex items-center justify-between text-xs">
                     <span>{usage.provider}</span>
-                    <span className="font-semibold" style={{ color: "#E2E8F0" }}>{usagePercent}%</span>
+                    <span className="font-semibold" style={{ color: "#E2E8F0" }}>
+                      {usagePercent}% {usage.source === "live" ? "" : "(fallback)"}
+                    </span>
                   </div>
                   <div className="mt-1.5 h-1.5 overflow-hidden rounded-full" style={{ background: "rgba(255,255,255,0.06)" }}>
                     <div className={cn("h-full rounded-full", getUsageColor(usagePercent))} style={{ width: `${usagePercent}%` }} />
                   </div>
                   <div className="mt-1.5 grid grid-cols-2 gap-y-1 text-[11px]" style={{ color: "#64748B" }}>
                     <span>남은: ${remaining.toFixed(1)}</span>
-                    <span className="text-right">오류: {usage.errorRate.toFixed(1)}%</span>
+                    <span className="text-right">오류율: {usage.errorRate.toFixed(1)}%</span>
+                    <span>예상: ${usage.estimatedCostUsd.toFixed(3)}</span>
+                    <span className="text-right">
+                      정산: {usage.settledCostUsd === null ? "-" : `$${usage.settledCostUsd.toFixed(3)}`}
+                    </span>
+                    <span className="truncate">토큰: in {usage.inputTokens.toLocaleString()} / out {usage.outputTokens.toLocaleString()}</span>
+                    <span className="text-right">요청: {usage.requestCount} (err {usage.errorCount})</span>
                   </div>
                 </div>
               );
